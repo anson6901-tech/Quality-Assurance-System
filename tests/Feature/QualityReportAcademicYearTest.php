@@ -5,6 +5,7 @@ use App\Models\AcademicYear;
 use App\Models\Course;
 use App\Models\Department;
 use App\Models\QualityReport;
+use App\Models\QualityRolePermission;
 use App\Models\School;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
@@ -512,6 +513,39 @@ it('only shows unpushed reports to the user who uploaded them', function () {
             ->has('reports', 0));
 });
 
+it('controls report viewing and uploading with separate rights', function () {
+    $qaOfficer = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
+
+    QualityRolePermission::query()->updateOrCreate(
+        ['role' => UniversityRole::QaOfficer->value],
+        [
+            'label' => UniversityRole::QaOfficer->label(),
+            'permissions' => ['view_reports'],
+            'is_system' => true,
+        ],
+    );
+
+    $this->actingAs($qaOfficer)
+        ->get('/quality/reports')
+        ->assertOk();
+
+    $this->actingAs($qaOfficer)
+        ->get('/quality/reports/create')
+        ->assertForbidden();
+
+    QualityRolePermission::query()
+        ->where('role', UniversityRole::QaOfficer->value)
+        ->update(['permissions' => json_encode(['upload_reports'])]);
+
+    $this->actingAs($qaOfficer)
+        ->get('/quality/reports')
+        ->assertForbidden();
+
+    $this->actingAs($qaOfficer)
+        ->get('/quality/reports/create')
+        ->assertOk();
+});
+
 it('allows QA officers to view approvals without approving reports', function () {
     $qaOfficer = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
     $qaDirector = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
@@ -530,6 +564,197 @@ it('allows QA officers to view approvals without approving reports', function ()
         ->assertInertia(fn (Assert $page) => $page
             ->component('quality/reports/Index')
             ->where('canApproveReports', true));
+});
+
+it('scopes dean approval rights to reports for lecturers in their school', function () {
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $otherSchool = School::create(['name' => 'School of Medicine', 'code' => 'SOM']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $otherDepartment = Department::create(['school_id' => $otherSchool->id, 'name' => 'Medicine', 'code' => 'MED']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $qaDirector = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $dean = User::factory()->create([
+        'university_role' => UniversityRole::Dean,
+        'school_id' => $school->id,
+    ]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+    $otherLecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $otherSchool->id,
+        'department_id' => $otherDepartment->id,
+    ]);
+
+    QualityRolePermission::query()->updateOrCreate(
+        ['role' => UniversityRole::Dean->value],
+        [
+            'label' => UniversityRole::Dean->label(),
+            'permissions' => ['view_school_reports', 'view_print_queue', 'view_approval_queue', 'approve_reports'],
+            'is_system' => true,
+        ],
+    );
+
+    $schoolLecturerReport = QualityReport::create([
+        'title' => 'Dean school lecturer report',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $otherSchool->id,
+        'department_id' => $otherDepartment->id,
+        'lecturer_id' => $lecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $otherSchoolLecturerReport = QualityReport::create([
+        'title' => 'Other school lecturer report',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $otherLecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $this->actingAs($dean)
+        ->get('/quality/approvals')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('approvalQueue', true)
+            ->where('canApproveReports', true)
+            ->has('reports', 1)
+            ->where('reports.0.title', 'Dean school lecturer report'));
+
+    $this->actingAs($dean)
+        ->post("/quality/reports/{$schoolLecturerReport->id}/approve")
+        ->assertRedirect('/quality/print-queue');
+
+    $this->actingAs($dean)
+        ->post("/quality/reports/{$otherSchoolLecturerReport->id}/approve")
+        ->assertForbidden();
+
+    expect($schoolLecturerReport->refresh()->status)->toBe('approved')
+        ->and($otherSchoolLecturerReport->refresh()->status)->toBe('under_review');
+});
+
+it('shows dean approvals for lecturers in their school by default', function () {
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $otherSchool = School::create(['name' => 'School of Medicine', 'code' => 'SOM']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $otherDepartment = Department::create(['school_id' => $otherSchool->id, 'name' => 'Medicine', 'code' => 'MED']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $qaDirector = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $dean = User::factory()->create([
+        'university_role' => UniversityRole::Dean,
+        'school_id' => $school->id,
+    ]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+    $otherLecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $otherSchool->id,
+        'department_id' => $otherDepartment->id,
+    ]);
+
+    QualityReport::create([
+        'title' => 'Dean default approval',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $otherSchool->id,
+        'department_id' => $otherDepartment->id,
+        'lecturer_id' => $lecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    QualityReport::create([
+        'title' => 'Other school approval',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $otherLecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $this->actingAs($dean)
+        ->get('/quality/approvals')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('approvalQueue', true)
+            ->where('canApproveReports', false)
+            ->has('reports', 1)
+            ->where('reports.0.title', 'Dean default approval'));
+});
+
+it('shows HOD approvals for lecturers in their department', function () {
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $otherDepartment = Department::create(['school_id' => $school->id, 'name' => 'Midwifery', 'code' => 'MIDW']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $qaDirector = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $hod = User::factory()->create([
+        'university_role' => UniversityRole::Hod,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+    $otherLecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $otherDepartment->id,
+    ]);
+
+    QualityRolePermission::query()->updateOrCreate(
+        ['role' => UniversityRole::Hod->value],
+        [
+            'label' => UniversityRole::Hod->label(),
+            'permissions' => ['view_school_reports', 'view_department_reports', 'view_approval_queue', 'view_print_queue'],
+            'is_system' => true,
+        ],
+    );
+
+    QualityReport::create([
+        'title' => 'HOD department approval',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $otherDepartment->id,
+        'lecturer_id' => $lecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    QualityReport::create([
+        'title' => 'Other department approval',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $otherLecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $this->actingAs($hod)
+        ->get('/quality/approvals')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('approvalQueue', true)
+            ->where('canApproveReports', false)
+            ->has('reports', 1)
+            ->where('reports.0.title', 'HOD department approval'));
 });
 
 it('serves uploaded report PDFs through the protected preview route', function () {
@@ -641,6 +866,171 @@ it('prevents QA officers from approving reports', function () {
         ->assertForbidden();
 
     expect($report->refresh()->status)->toBe('under_review');
+});
+
+it('pushes reports back to the QA officer before approval', function () {
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $qaDirector = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $qaOfficer = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+
+    $report = QualityReport::create([
+        'title' => 'Needs corrections',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $lecturer->id,
+        'uploaded_by' => $qaOfficer->id,
+    ]);
+
+    $this->actingAs($qaDirector)
+        ->post("/quality/reports/{$report->id}/return")
+        ->assertRedirect('/quality/approvals');
+
+    expect($report->refresh()->status)->toBe('submitted');
+
+    $this->actingAs($qaOfficer)
+        ->get('/quality/reports')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('reports', 1)
+            ->where('reports.0.title', 'Needs corrections')
+            ->where('reports.0.location', 'Report Module'));
+});
+
+it('does not push back approved reports or allow view-only approvers to push back', function () {
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $qaDirector = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $qaOfficer = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+
+    $approvedReport = QualityReport::create([
+        'title' => 'Approved cannot push back',
+        'category' => 'Academic Quality',
+        'status' => 'approved',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $lecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $underReviewReport = QualityReport::create([
+        'title' => 'View-only cannot push back',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $lecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $this->actingAs($qaDirector)
+        ->post("/quality/reports/{$approvedReport->id}/return")
+        ->assertStatus(409);
+
+    $this->actingAs($qaOfficer)
+        ->post("/quality/reports/{$underReviewReport->id}/return")
+        ->assertForbidden();
+
+    expect($approvedReport->refresh()->status)->toBe('approved')
+        ->and($underReviewReport->refresh()->status)->toBe('under_review');
+});
+
+it('deletes reports from the approvals queue before they are approved', function () {
+    Storage::fake('public');
+
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $qaDirector = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+
+    Storage::disk('public')->put('quality-reports/delete-me.pdf', '%PDF-1.4');
+
+    $report = QualityReport::create([
+        'title' => 'Delete before approval',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $lecturer->id,
+        'file_path' => 'quality-reports/delete-me.pdf',
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $this->actingAs($qaDirector)
+        ->delete("/quality/reports/{$report->id}")
+        ->assertRedirect('/quality/approvals');
+
+    expect(QualityReport::query()->whereKey($report->id)->exists())->toBeFalse();
+    Storage::disk('public')->assertMissing('quality-reports/delete-me.pdf');
+});
+
+it('does not delete approved reports or allow view-only approvers to delete', function () {
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $qaDirector = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $qaOfficer = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+
+    $approvedReport = QualityReport::create([
+        'title' => 'Approved report cannot be deleted',
+        'category' => 'Academic Quality',
+        'status' => 'approved',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $lecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $underReviewReport = QualityReport::create([
+        'title' => 'View-only cannot delete',
+        'category' => 'Academic Quality',
+        'status' => 'under_review',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $lecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ]);
+
+    $this->actingAs($qaDirector)
+        ->delete("/quality/reports/{$approvedReport->id}")
+        ->assertStatus(409);
+
+    $this->actingAs($qaOfficer)
+        ->delete("/quality/reports/{$underReviewReport->id}")
+        ->assertForbidden();
+
+    expect($approvedReport->fresh())->not->toBeNull()
+        ->and($underReviewReport->fresh())->not->toBeNull();
 });
 
 it('only shows approved reports in the print queue', function () {
@@ -779,8 +1169,8 @@ it('applies document role-based access to approved reports', function () {
         'category' => 'Academic Quality',
         'status' => 'approved',
         'academic_year_id' => $academicYear->id,
-        'school_id' => $school->id,
-        'department_id' => $department->id,
+        'school_id' => $otherSchool->id,
+        'department_id' => $otherDepartment->id,
         'lecturer_id' => $lecturer->id,
         'uploaded_by' => $qaDirector->id,
     ]);
@@ -790,8 +1180,8 @@ it('applies document role-based access to approved reports', function () {
         'category' => 'Academic Quality',
         'status' => 'approved',
         'academic_year_id' => $academicYear->id,
-        'school_id' => $otherSchool->id,
-        'department_id' => $otherDepartment->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
         'lecturer_id' => $otherLecturer->id,
         'uploaded_by' => $qaDirector->id,
     ]);
@@ -826,6 +1216,26 @@ it('applies document role-based access to approved reports', function () {
         ->get('/quality/print-queue')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page->has('reports', 2));
+
+    $this->actingAs($dean)
+        ->get('/quality/print-queue?'.http_build_query([
+            'school_id' => $school->id,
+            'department_id' => $department->id,
+        ]))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('reports', 1)
+            ->where('reports.0.title', 'Nursing approved report'));
+
+    $this->actingAs($hod)
+        ->get('/quality/print-queue?'.http_build_query([
+            'school_id' => $school->id,
+            'department_id' => $department->id,
+        ]))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('reports', 1)
+            ->where('reports.0.title', 'Nursing approved report'));
 });
 
 it('allows scoped users to download only their approved print queue reports', function () {
@@ -892,12 +1302,26 @@ it('shows lecturers reports assigned directly or through their courses', functio
         'school_id' => $school->id,
         'department_id' => $department->id,
     ]);
+    $otherLecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
     $course = Course::create([
         'department_id' => $department->id,
         'code' => 'NURS 401',
         'title' => 'Clinical Practice',
     ]);
     $course->lecturers()->attach($courseLecturer);
+
+    QualityRolePermission::query()->updateOrCreate(
+        ['role' => UniversityRole::Lecturer->value],
+        [
+            'label' => UniversityRole::Lecturer->label(),
+            'permissions' => ['view_own_reports', 'view_school_reports', 'view_department_reports', 'view_all_reports', 'view_print_queue'],
+            'is_system' => true,
+        ],
+    );
 
     $directReport = QualityReport::create([
         'title' => 'Direct lecturer report',
@@ -921,19 +1345,38 @@ it('shows lecturers reports assigned directly or through their courses', functio
     ]);
     $courseReport->courses()->attach($course);
 
+    QualityReport::create([
+        'title' => 'Other lecturer report',
+        'category' => 'Academic Quality',
+        'status' => 'approved',
+        'academic_year_id' => $academicYear->id,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+        'lecturer_id' => $otherLecturer->id,
+        'uploaded_by' => $qaDirector->id,
+    ])->courses()->attach($course);
+
     $this->actingAs($lecturer)
-        ->get('/quality/print-queue')
+        ->get('/quality/print-queue?'.http_build_query([
+            'lecturer_id' => $otherLecturer->id,
+            'academic_year_id' => 999,
+            'school_id' => 999,
+            'department_id' => 999,
+        ]))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->has('reports', 1)
-            ->where('reports.0.title', $directReport->title));
+            ->where('reports.0.title', $directReport->title)
+            ->where('filters', [])
+            ->where('filterOptions', null));
 
     $this->actingAs($courseLecturer)
         ->get('/quality/print-queue')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->has('reports', 1)
-            ->where('reports.0.title', $courseReport->title));
+            ->where('reports.0.title', $courseReport->title)
+            ->where('filterOptions', null));
 });
 
 it('unapproves reports and removes them from the print queue', function () {

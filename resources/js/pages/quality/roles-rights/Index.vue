@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { Plus, Save } from 'lucide-vue-next';
-import { reactive } from 'vue';
+import { Plus, Save, Trash2 } from 'lucide-vue-next';
+import { reactive, watch } from 'vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
 import { Badge } from '@/components/ui/badge';
@@ -22,9 +22,16 @@ type PermissionOption = {
     label: string;
 };
 
+type PermissionGroup = {
+    label: string;
+    description: string;
+    permissions: PermissionOption[];
+};
+
 const props = defineProps<{
     roles: RoleRight[];
     permissionOptions: PermissionOption[];
+    permissionGroups: PermissionGroup[];
 }>();
 
 defineOptions({
@@ -42,6 +49,23 @@ const selected = reactive<Record<string, string[]>>(
     Object.fromEntries(
         props.roles.map((role) => [role.value, [...role.permissions]]),
     ),
+);
+
+watch(
+    () => props.roles,
+    (roles) => {
+        const roleValues = new Set(roles.map((role) => role.value));
+
+        roles.forEach((role) => {
+            selected[role.value] = [...role.permissions];
+        });
+
+        Object.keys(selected).forEach((role) => {
+            if (!roleValues.has(role)) {
+                delete selected[role];
+            }
+        });
+    },
 );
 
 const form = useForm({
@@ -95,6 +119,20 @@ const saveRole = (role: RoleRight) => {
         },
     );
 };
+
+const deleteRole = (role: RoleRight) => {
+    if (role.isSystem) {
+        return;
+    }
+
+    if (!window.confirm(`Delete the ${role.label} role?`)) {
+        return;
+    }
+
+    router.delete(`/quality/roles-rights/${role.value}`, {
+        preserveScroll: true,
+    });
+};
 </script>
 
 <template>
@@ -126,26 +164,57 @@ const saveRole = (role: RoleRight) => {
                     <InputError :message="form.errors.label" />
                 </div>
 
-                <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    <Label
-                        v-for="permission in permissionOptions"
-                        :key="`new-${permission.value}`"
-                        class="flex min-h-14 cursor-pointer items-start gap-3 rounded-lg border border-[#9fd8b8] bg-white p-4 text-sm font-normal text-[#063f22] transition hover:border-[#007a2f] hover:bg-[#f8fffb]"
+                <div class="grid gap-4 xl:grid-cols-2">
+                    <div
+                        v-for="group in permissionGroups"
+                        :key="`new-${group.label}`"
+                        class="rounded-lg border border-[#9fd8b8] bg-white p-4"
                     >
-                        <Checkbox
-                            :model-value="
-                                form.permissions.includes(permission.value)
-                            "
-                            @update:model-value="
-                                (checked) =>
-                                    toggleNewRolePermission(
-                                        permission.value,
-                                        checked,
-                                    )
-                            "
-                        />
-                        <span class="font-medium">{{ permission.label }}</span>
-                    </Label>
+                        <div class="mb-3">
+                            <h3 class="text-sm font-semibold text-[#063f22]">
+                                {{ group.label }}
+                            </h3>
+                            <p class="text-xs text-muted-foreground">
+                                {{ group.description }}
+                            </p>
+                        </div>
+
+                        <div class="grid gap-2">
+                            <Label
+                                v-for="permission in group.permissions"
+                                :key="`new-${permission.value}`"
+                                class="flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-transparent bg-[#f8fffb] p-3 text-sm font-normal text-[#063f22] transition hover:border-[#007a2f] hover:bg-[#eefaf3]"
+                            >
+                                <Checkbox
+                                    :model-value="
+                                        form.permissions.includes(
+                                            permission.value,
+                                        )
+                                    "
+                                    @update:model-value="
+                                        (checked) =>
+                                            toggleNewRolePermission(
+                                                permission.value,
+                                                checked,
+                                            )
+                                    "
+                                />
+                                <span>
+                                    <span class="block font-medium">
+                                        {{ permission.label }}
+                                    </span>
+                                    <span class="text-xs text-muted-foreground">
+                                        {{
+                                            permission.value.replaceAll(
+                                                '_',
+                                                ' ',
+                                            )
+                                        }}
+                                    </span>
+                                </span>
+                            </Label>
+                        </div>
+                    </div>
                 </div>
 
                 <Button
@@ -184,43 +253,79 @@ const saveRole = (role: RoleRight) => {
                         </p>
                     </div>
 
-                    <Button
-                        type="button"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        @click="saveRole(role)"
-                    >
-                        <Save /> Save rights
-                    </Button>
+                    <div class="flex flex-wrap gap-2">
+                        <Button
+                            v-if="!role.isSystem"
+                            type="button"
+                            variant="outline"
+                            class="border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50 hover:text-red-800"
+                            @click="deleteRole(role)"
+                        >
+                            <Trash2 /> Delete role
+                        </Button>
+
+                        <Button
+                            type="button"
+                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                            @click="saveRole(role)"
+                        >
+                            <Save /> Save rights
+                        </Button>
+                    </div>
                 </div>
 
-                <div class="grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-3">
-                    <Label
-                        v-for="permission in permissionOptions"
-                        :key="`${role.value}-${permission.value}`"
-                        class="flex min-h-16 cursor-pointer items-start gap-3 rounded-lg border border-[#9fd8b8] bg-[#f8fffb] p-4 text-sm font-normal text-[#063f22] transition hover:border-[#007a2f] hover:bg-[#eefaf3]"
+                <div class="grid gap-4 pt-4 lg:grid-cols-2">
+                    <div
+                        v-for="group in permissionGroups"
+                        :key="`${role.value}-${group.label}`"
+                        class="rounded-lg border border-[#9fd8b8] bg-[#f8fffb] p-4"
                     >
-                        <Checkbox
-                            :model-value="
-                                selected[role.value].includes(permission.value)
-                            "
-                            @update:model-value="
-                                (checked) =>
-                                    togglePermission(
-                                        role.value,
-                                        permission.value,
-                                        checked,
-                                    )
-                            "
-                        />
-                        <span>
-                            <span class="block font-medium">
-                                {{ permission.label }}
-                            </span>
-                            <span class="text-xs text-muted-foreground">
-                                {{ permission.value.replaceAll('_', ' ') }}
-                            </span>
-                        </span>
-                    </Label>
+                        <div class="mb-3">
+                            <h3 class="text-sm font-semibold text-[#063f22]">
+                                {{ group.label }}
+                            </h3>
+                            <p class="text-xs text-muted-foreground">
+                                {{ group.description }}
+                            </p>
+                        </div>
+
+                        <div class="grid gap-2">
+                            <Label
+                                v-for="permission in group.permissions"
+                                :key="`${role.value}-${permission.value}`"
+                                class="flex min-h-12 cursor-pointer items-start gap-3 rounded-md border border-transparent bg-white p-3 text-sm font-normal text-[#063f22] transition hover:border-[#007a2f] hover:bg-[#eefaf3]"
+                            >
+                                <Checkbox
+                                    :model-value="
+                                        selected[role.value].includes(
+                                            permission.value,
+                                        )
+                                    "
+                                    @update:model-value="
+                                        (checked) =>
+                                            togglePermission(
+                                                role.value,
+                                                permission.value,
+                                                checked,
+                                            )
+                                    "
+                                />
+                                <span>
+                                    <span class="block font-medium">
+                                        {{ permission.label }}
+                                    </span>
+                                    <span class="text-xs text-muted-foreground">
+                                        {{
+                                            permission.value.replaceAll(
+                                                '_',
+                                                ' ',
+                                            )
+                                        }}
+                                    </span>
+                                </span>
+                            </Label>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

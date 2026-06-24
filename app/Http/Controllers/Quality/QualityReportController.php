@@ -24,7 +24,7 @@ class QualityReportController extends Controller
 {
     public function index(Request $request): Response
     {
-        abort_unless($request->user()->canUploadQualityReports(), 403);
+        abort_unless($request->user()->canViewQualityReports(), 403);
 
         $filters = $this->validateReportFilters($request, includeStatus: true);
 
@@ -38,6 +38,7 @@ class QualityReportController extends Controller
 
         return Inertia::render('quality/reports/Index', [
             'reports' => $reports,
+            'canViewReports' => $request->user()->canViewQualityReports(),
             'canUploadReports' => $request->user()->canUploadQualityReports(),
             'approvalQueue' => false,
             'printQueue' => false,
@@ -55,6 +56,7 @@ class QualityReportController extends Controller
 
         $reports = QualityReport::query()
             ->whereIn('status', ['under_review', 'approved'])
+            ->tap(fn ($query) => $this->applyApprovalScope($query, $request->user()))
             ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
             ->with(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name'])
             ->latest()
@@ -63,6 +65,7 @@ class QualityReportController extends Controller
 
         return Inertia::render('quality/reports/Index', [
             'reports' => $reports,
+            'canViewReports' => $request->user()->canViewQualityReports(),
             'canUploadReports' => $request->user()->canUploadQualityReports(),
             'approvalQueue' => true,
             'printQueue' => false,
@@ -76,7 +79,8 @@ class QualityReportController extends Controller
     {
         abort_unless($request->user()->canViewPrintQueue(), 403);
 
-        $filters = $this->validateReportFilters($request);
+        $canFilterReports = $this->canFilterReports($request);
+        $filters = $canFilterReports ? $this->validateReportFilters($request) : [];
 
         $reports = QualityReport::query()
             ->visibleTo($request->user())
@@ -89,12 +93,13 @@ class QualityReportController extends Controller
 
         return Inertia::render('quality/reports/Index', [
             'reports' => $reports,
+            'canViewReports' => $request->user()->canViewQualityReports(),
             'canUploadReports' => $request->user()->canUploadQualityReports(),
             'approvalQueue' => false,
             'printQueue' => true,
             'canApproveReports' => false,
             'filters' => $filters,
-            'filterOptions' => $this->reportFilterOptions(),
+            'filterOptions' => $canFilterReports ? $this->reportFilterOptions() : null,
         ]);
     }
 
@@ -215,7 +220,7 @@ class QualityReportController extends Controller
 
     public function approve(Request $request, QualityReport $report): RedirectResponse
     {
-        abort_unless($this->canApproveReports($request), 403);
+        abort_unless($this->canManageApprovalReport($request, $report), 403);
         abort_unless($report->status === 'under_review', 409);
 
         $report->update(['status' => 'approved']);
@@ -225,14 +230,43 @@ class QualityReportController extends Controller
         return to_route('quality.reports.print-queue');
     }
 
+    public function returnToOfficer(Request $request, QualityReport $report): RedirectResponse
+    {
+        abort_unless($this->canManageApprovalReport($request, $report), 403);
+        abort_unless($report->status === 'under_review', 409);
+
+        $report->update(['status' => 'submitted']);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report pushed back to the QA officer.')]);
+
+        return to_route('quality.reports.approvals');
+    }
+
     public function unapprove(Request $request, QualityReport $report): RedirectResponse
     {
-        abort_unless($this->canApproveReports($request), 403);
+        abort_unless($this->canManageApprovalReport($request, $report), 403);
         abort_unless($report->status === 'approved', 409);
 
         $report->update(['status' => 'under_review']);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Report unapproved and removed from print queue.')]);
+
+        return to_route('quality.reports.approvals');
+    }
+
+    public function destroy(Request $request, QualityReport $report): RedirectResponse
+    {
+        abort_unless($this->canManageApprovalReport($request, $report), 403);
+        abort_unless($report->status === 'under_review', 409);
+
+        if ($report->file_path) {
+            Storage::disk('public')->delete($report->file_path);
+        }
+
+        $report->courses()->detach();
+        $report->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report deleted.')]);
 
         return to_route('quality.reports.approvals');
     }
@@ -333,7 +367,7 @@ class QualityReportController extends Controller
         }
 
         if ($report->status === 'under_review') {
-            return $this->canViewApprovalQueue($request);
+            return $this->canViewApprovalReport($request, $report);
         }
 
         return QualityReport::query()
@@ -350,6 +384,31 @@ class QualityReportController extends Controller
     private function canViewApprovalQueue(Request $request): bool
     {
         return $request->user()->canViewApprovalQueue();
+    }
+
+    private function canViewApprovalReport(Request $request, QualityReport $report): bool
+    {
+        return $this->canViewApprovalQueue($request)
+            && $this->approvalScopedReportExists($request, $report);
+    }
+
+    private function canManageApprovalReport(Request $request, QualityReport $report): bool
+    {
+        return $this->canApproveReports($request)
+            && $this->approvalScopedReportExists($request, $report);
+    }
+
+    private function canFilterReports(Request $request): bool
+    {
+        return ! QualityRolePermission::roleHas($request->user()->university_role, 'view_own_reports');
+    }
+
+    private function approvalScopedReportExists(Request $request, QualityReport $report): bool
+    {
+        return QualityReport::query()
+            ->whereKey($report->id)
+            ->tap(fn ($query) => $this->applyApprovalScope($query, $request->user()))
+            ->exists();
     }
 
     /**
@@ -379,9 +438,58 @@ class QualityReportController extends Controller
         $query
             ->when($filters['lecturer_id'] ?? null, fn ($query, $lecturerId) => $query->where('lecturer_id', $lecturerId))
             ->when($filters['academic_year_id'] ?? null, fn ($query, $academicYearId) => $query->where('academic_year_id', $academicYearId))
-            ->when($filters['school_id'] ?? null, fn ($query, $schoolId) => $query->where('school_id', $schoolId))
-            ->when($filters['department_id'] ?? null, fn ($query, $departmentId) => $query->where('department_id', $departmentId))
+            ->when($filters['school_id'] ?? null, fn ($query, $schoolId) => $query->where(function ($query) use ($schoolId): void {
+                $query
+                    ->whereHas('lecturer', fn ($query) => $query->where('school_id', $schoolId))
+                    ->orWhere(function ($query) use ($schoolId): void {
+                        $query
+                            ->whereNull('lecturer_id')
+                            ->where('school_id', $schoolId);
+                    });
+            }))
+            ->when($filters['department_id'] ?? null, fn ($query, $departmentId) => $query->where(function ($query) use ($departmentId): void {
+                $query
+                    ->whereHas('lecturer', fn ($query) => $query->where('department_id', $departmentId))
+                    ->orWhere(function ($query) use ($departmentId): void {
+                        $query
+                            ->whereNull('lecturer_id')
+                            ->where('department_id', $departmentId);
+                    });
+            }))
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status));
+    }
+
+    private function applyApprovalScope($query, User $user): void
+    {
+        if (QualityRolePermission::roleHas($user->university_role, 'view_all_reports')) {
+            return;
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_department_reports')) {
+            $query->where(function ($query) use ($user): void {
+                $query
+                    ->whereHas('lecturer', fn ($query) => $query->where('department_id', $user->department_id))
+                    ->orWhere(function ($query) use ($user): void {
+                        $query
+                            ->whereNull('lecturer_id')
+                            ->where('department_id', $user->department_id);
+                    });
+            });
+
+            return;
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_school_reports')) {
+            $query->where(function ($query) use ($user): void {
+                $query
+                    ->whereHas('lecturer', fn ($query) => $query->where('school_id', $user->school_id))
+                    ->orWhere(function ($query) use ($user): void {
+                        $query
+                            ->whereNull('lecturer_id')
+                            ->where('school_id', $user->school_id);
+                    });
+            });
+        }
     }
 
     /**

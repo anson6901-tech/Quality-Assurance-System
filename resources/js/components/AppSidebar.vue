@@ -44,11 +44,14 @@ const mainNavItems = computed<NavItem[]>(() => [
         href: dashboardUrl.value,
         icon: LayoutGrid,
     },
-    ...(page.props.qualityProfile?.canUploadReports
+    ...(page.props.qualityProfile?.canViewReports ||
+    page.props.qualityProfile?.canUploadReports
         ? [
               {
                   title: 'Reports',
-                  href: '/quality/reports',
+                  href: page.props.qualityProfile?.canViewReports
+                      ? '/quality/reports'
+                      : '/quality/reports/create',
                   icon: ClipboardList,
               },
           ]

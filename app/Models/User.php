@@ -109,6 +109,11 @@ class User extends Authenticatable
         return QualityRolePermission::roleHas($this->university_role, 'upload_reports');
     }
 
+    public function canViewQualityReports(): bool
+    {
+        return QualityRolePermission::roleHas($this->university_role, 'view_reports');
+    }
+
     public function canApproveQualityReports(): bool
     {
         return QualityRolePermission::roleHas($this->university_role, 'approve_reports');
@@ -151,6 +156,7 @@ class User extends Authenticatable
             'permissions' => $permissions,
             'canManageUsers' => $this->canManageUsers(),
             'canManageQualityStructure' => $this->canManageQualityStructure(),
+            'canViewReports' => $this->canViewQualityReports(),
             'canUploadReports' => $this->canUploadQualityReports(),
             'canViewApprovalQueue' => $this->canViewApprovalQueue(),
             'canApproveReports' => $this->canApproveQualityReports(),

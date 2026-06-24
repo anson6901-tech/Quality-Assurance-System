@@ -10,6 +10,7 @@ import {
     Printer,
     RotateCcw,
     Send,
+    Trash2,
 } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import Heading from '@/components/Heading.vue';
@@ -40,6 +41,7 @@ type ReportFilters = {
 
 const props = defineProps<{
     reports: QualityReport[];
+    canViewReports: boolean;
     canUploadReports: boolean;
     approvalQueue: boolean;
     printQueue: boolean;
@@ -92,6 +94,12 @@ const filterRoute = computed(() => {
 
 const printReport = (report: QualityReport) => {
     window.open(report.fileUrl ?? `/quality/reports/${report.id}`, '_blank');
+};
+
+const deleteReport = (report: QualityReport) => {
+    router.delete(`/quality/reports/${report.id}`, {
+        preserveScroll: true,
+    });
 };
 
 const lecturerSearch = ref('');
@@ -439,6 +447,41 @@ defineOptions({
                         >
                             <Check class="h-4 w-4" />
                             Approve
+                        </Link>
+                    </Button>
+
+                    <Button
+                        v-if="
+                            approvalQueue &&
+                            canApproveReports &&
+                            report.status === 'under_review'
+                        "
+                        size="sm"
+                        variant="destructive"
+                        type="button"
+                        @click="deleteReport(report)"
+                    >
+                        <Trash2 class="h-4 w-4" />
+                        Delete
+                    </Button>
+
+                    <Button
+                        v-if="
+                            approvalQueue &&
+                            canApproveReports &&
+                            report.status === 'under_review'
+                        "
+                        size="sm"
+                        variant="outline"
+                        as-child
+                    >
+                        <Link
+                            :href="`/quality/reports/${report.id}/return`"
+                            method="post"
+                            as="button"
+                        >
+                            <RotateCcw class="h-4 w-4" />
+                            Push back
                         </Link>
                     </Button>
 

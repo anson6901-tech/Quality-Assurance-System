@@ -73,7 +73,7 @@ defineOptions({
                         as-child
                         class="h-11 rounded-lg bg-[#eef3f8] px-5 text-base font-bold text-[#071126] hover:bg-white"
                     >
-                        <Link href="/quality/reports">View reports</Link>
+                        <Link href="/quality/reports/create">Upload report</Link>
                     </Button>
                     <Button
                         v-if="page.props.qualityProfile?.canApproveReports"

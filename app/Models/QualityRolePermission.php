@@ -29,6 +29,7 @@ class QualityRolePermission extends Model
         return [
             'manage_users' => 'Create users and assign roles',
             'manage_structure' => 'Manage schools, departments, courses, and academic years',
+            'view_reports' => 'View the report module',
             'upload_reports' => 'Upload lecturer evaluation reports',
             'view_approval_queue' => 'View reports waiting for approval',
             'approve_reports' => 'Approve and unapprove reports',
@@ -47,14 +48,61 @@ class QualityRolePermission extends Model
     public static function defaults(): array
     {
         return [
-            UniversityRole::QaOfficer->value => ['upload_reports', 'view_approval_queue'],
-            UniversityRole::QaDirector->value => ['manage_users', 'manage_structure', 'upload_reports', 'view_approval_queue', 'approve_reports', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
+            UniversityRole::QaOfficer->value => ['view_reports', 'upload_reports', 'view_approval_queue'],
+            UniversityRole::QaDirector->value => ['manage_users', 'manage_structure', 'view_reports', 'upload_reports', 'view_approval_queue', 'approve_reports', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
             UniversityRole::IctAdmin->value => ['manage_users', 'manage_structure', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
-            UniversityRole::Dean->value => ['view_school_reports', 'view_print_queue'],
-            UniversityRole::Hod->value => ['view_department_reports', 'view_print_queue'],
+            UniversityRole::Dean->value => ['view_school_reports', 'view_approval_queue', 'view_print_queue'],
+            UniversityRole::Hod->value => ['view_department_reports', 'view_approval_queue', 'view_print_queue'],
             UniversityRole::Lecturer->value => ['view_own_reports', 'view_print_queue'],
             UniversityRole::AppointmentCommittee->value => ['view_all_reports', 'view_print_queue'],
         ];
+    }
+
+    /**
+     * @return array<int, array{label: string, description: string, permissions: array<int, array{value: string, label: string}>}>
+     */
+    public static function permissionGroups(): array
+    {
+        $permissions = self::availablePermissions();
+
+        return collect([
+            [
+                'label' => 'Reports',
+                'description' => 'Open the report module and upload lecturer reports',
+                'permissions' => ['view_reports', 'upload_reports'],
+            ],
+            [
+                'label' => 'Approvals',
+                'description' => 'View reports waiting for review and approve them',
+                'permissions' => ['view_approval_queue', 'approve_reports'],
+            ],
+            [
+                'label' => 'Print Queue',
+                'description' => 'Open approved reports ready for printing',
+                'permissions' => ['view_print_queue'],
+            ],
+            [
+                'label' => 'Report Scope',
+                'description' => 'Control which approved reports this role can see',
+                'permissions' => ['view_all_reports', 'view_school_reports', 'view_department_reports', 'view_own_reports'],
+            ],
+            [
+                'label' => 'Administration',
+                'description' => 'Manage users, academic structure, and audit logs',
+                'permissions' => ['manage_users', 'manage_structure', 'view_audit_logs'],
+            ],
+        ])
+            ->map(fn (array $group): array => [
+                'label' => $group['label'],
+                'description' => $group['description'],
+                'permissions' => collect($group['permissions'])
+                    ->map(fn (string $permission): array => [
+                        'value' => $permission,
+                        'label' => $permissions[$permission],
+                    ])
+                    ->all(),
+            ])
+            ->all();
     }
 
     public static function ensureDefaults(): void
@@ -70,15 +118,9 @@ class QualityRolePermission extends Model
             );
 
             if ($record->is_system) {
-                $permissions = array_values(array_unique([
-                    ...($record->permissions ?? []),
-                    ...(self::defaults()[$role->value] ?? []),
-                ]));
-
-                $record->forceFill([
-                    'label' => $role->label(),
-                    'permissions' => $permissions,
-                ])->save();
+                self::syncSystemRole($record, $role);
+            } elseif (! $record->wasRecentlyCreated) {
+                self::syncSystemRole($record, $role);
             }
         }
     }
@@ -102,7 +144,7 @@ class QualityRolePermission extends Model
             ]);
 
         $customRoles = $records
-            ->filter(fn (self $role): bool => ! $role->is_system)
+            ->filter(fn (self $role): bool => ! $role->is_system && ! UniversityRole::tryFrom($role->role))
             ->sortBy(fn (self $role): string => $role->displayLabel())
             ->map(fn (self $role): array => [
                 'value' => $role->role,
@@ -146,14 +188,9 @@ class QualityRolePermission extends Model
         );
 
         if ($systemRole && $record->is_system) {
-            $permissions = array_values(array_unique([
-                ...($record->permissions ?? []),
-                ...(self::defaults()[$roleValue] ?? []),
-            ]));
-
-            if ($permissions !== ($record->permissions ?? [])) {
-                $record->forceFill(['permissions' => $permissions])->save();
-            }
+            self::syncSystemRole($record, $systemRole);
+        } elseif ($systemRole && ! $record->wasRecentlyCreated) {
+            self::syncSystemRole($record, $systemRole);
         }
 
         return $record->permissions ?? [];
@@ -185,5 +222,14 @@ class QualityRolePermission extends Model
         return $this->label
             ?? UniversityRole::tryFrom($this->role)?->label()
             ?? Str::headline($this->role);
+    }
+
+    private static function syncSystemRole(self $record, UniversityRole $role): void
+    {
+        $record->forceFill([
+            'label' => $role->label(),
+            'permissions' => $record->permissions ?? self::defaults()[$role->value] ?? [],
+            'is_system' => true,
+        ])->save();
     }
 }

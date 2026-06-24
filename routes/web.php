@@ -35,7 +35,9 @@ Route::middleware(['auth', 'verified'])
         Route::post('reports', [QualityReportController::class, 'store'])->name('reports.store');
         Route::post('reports/{report}/push', [QualityReportController::class, 'push'])->name('reports.push');
         Route::post('reports/{report}/approve', [QualityReportController::class, 'approve'])->name('reports.approve');
+        Route::post('reports/{report}/return', [QualityReportController::class, 'returnToOfficer'])->name('reports.return');
         Route::post('reports/{report}/unapprove', [QualityReportController::class, 'unapprove'])->name('reports.unapprove');
+        Route::delete('reports/{report}', [QualityReportController::class, 'destroy'])->name('reports.destroy');
         Route::get('reports/{report}/file', [QualityReportController::class, 'file'])->name('reports.file');
         Route::get('reports/{report}/download', [QualityReportController::class, 'download'])->name('reports.download');
         Route::get('reports/{report}', [QualityReportController::class, 'show'])->name('reports.show');
@@ -64,6 +66,7 @@ Route::middleware(['auth', 'verified'])
         Route::get('roles-rights', [RoleRightController::class, 'index'])->name('roles-rights.index');
         Route::post('roles-rights', [RoleRightController::class, 'store'])->name('roles-rights.store');
         Route::patch('roles-rights/{role}', [RoleRightController::class, 'update'])->name('roles-rights.update');
+        Route::delete('roles-rights/{role}', [RoleRightController::class, 'destroy'])->name('roles-rights.destroy');
 
         Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
         Route::get('audit-logs/export', [AuditLogController::class, 'export'])->name('audit-logs.export');

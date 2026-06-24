@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Quality;
 use App\Enums\UniversityRole;
 use App\Http\Controllers\Controller;
 use App\Models\QualityRolePermission;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -34,6 +35,7 @@ class RoleRightController extends Controller
                     'label' => $label,
                 ])
                 ->values(),
+            'permissionGroups' => QualityRolePermission::permissionGroups(),
         ]);
     }
 
@@ -87,6 +89,29 @@ class RoleRightController extends Controller
         );
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Role rights updated.')]);
+
+        return to_route('quality.roles-rights.index');
+    }
+
+    public function destroy(Request $request, string $role): RedirectResponse
+    {
+        abort_unless($request->user()->canManageUsers(), 403);
+        abort_if(UniversityRole::tryFrom($role), 409, __('System roles cannot be deleted.'));
+
+        $roleRight = QualityRolePermission::query()
+            ->where('role', $role)
+            ->where('is_system', false)
+            ->firstOrFail();
+
+        abort_if(
+            User::query()->where('university_role', $role)->exists(),
+            409,
+            __('Move users out of this role before deleting it.'),
+        );
+
+        $roleRight->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Role deleted.')]);
 
         return to_route('quality.roles-rights.index');
     }

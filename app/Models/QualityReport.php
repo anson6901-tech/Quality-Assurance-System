@@ -80,25 +80,45 @@ class QualityReport extends Model
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if (QualityRolePermission::roleHas($user->university_role, 'view_all_reports')) {
-            return $query;
-        }
-
-        if (QualityRolePermission::roleHas($user->university_role, 'view_school_reports')) {
-            return $query->where('school_id', $user->school_id);
-        }
-
-        if (QualityRolePermission::roleHas($user->university_role, 'view_department_reports')) {
-            return $query->where('department_id', $user->department_id);
-        }
-
         if (QualityRolePermission::roleHas($user->university_role, 'view_own_reports')) {
             return $query->where(function (Builder $query) use ($user): void {
                 $query
                     ->where('lecturer_id', $user->id)
-                    ->orWhereHas('courses', fn (Builder $query) => $query
-                        ->whereHas('lecturers', fn (Builder $query) => $query->whereKey($user->id)));
+                    ->orWhere(function (Builder $query) use ($user): void {
+                        $query
+                            ->whereNull('lecturer_id')
+                            ->whereHas('courses', fn (Builder $query) => $query
+                                ->whereHas('lecturers', fn (Builder $query) => $query->whereKey($user->id)));
+                    });
             });
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_department_reports')) {
+            return $query->where(function (Builder $query) use ($user): void {
+                $query
+                    ->whereHas('lecturer', fn (Builder $query) => $query->where('department_id', $user->department_id))
+                    ->orWhere(function (Builder $query) use ($user): void {
+                        $query
+                            ->whereNull('lecturer_id')
+                            ->where('department_id', $user->department_id);
+                    });
+            });
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_school_reports')) {
+            return $query->where(function (Builder $query) use ($user): void {
+                $query
+                    ->whereHas('lecturer', fn (Builder $query) => $query->where('school_id', $user->school_id))
+                    ->orWhere(function (Builder $query) use ($user): void {
+                        $query
+                            ->whereNull('lecturer_id')
+                            ->where('school_id', $user->school_id);
+                    });
+            });
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_all_reports')) {
+            return $query;
         }
 
         return $query->whereRaw('1 = 0');

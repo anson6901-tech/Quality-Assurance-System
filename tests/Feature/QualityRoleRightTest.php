@@ -17,7 +17,37 @@ it('shows role rights to users with manage user access', function () {
             ->component('quality/roles-rights/Index')
             ->has('roles', count(UniversityRole::cases()))
             ->where('roles.0.value', UniversityRole::QaOfficer->value)
-            ->has('permissionOptions'));
+            ->has('permissionOptions')
+            ->has('permissionGroups', 5)
+            ->where('permissionGroups.0.label', 'Reports')
+            ->where('permissionGroups.0.permissions.0.value', 'view_reports')
+            ->where('permissionGroups.0.permissions.1.value', 'upload_reports'));
+});
+
+it('repairs stale system role rows instead of showing duplicate roles', function () {
+    $admin = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
+
+    QualityRolePermission::query()->create([
+        'role' => UniversityRole::Dean->value,
+        'label' => null,
+        'permissions' => ['view_school_reports'],
+        'is_system' => false,
+    ]);
+
+    $this->actingAs($admin)
+        ->get('/quality/roles-rights')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('roles', count(UniversityRole::cases()))
+            ->where('roles.3.value', UniversityRole::Dean->value)
+            ->where('roles.3.isSystem', true));
+
+    $deanRole = QualityRolePermission::query()
+        ->where('role', UniversityRole::Dean->value)
+        ->first();
+
+    expect($deanRole?->is_system)->toBeTrue()
+        ->and($deanRole?->label)->toBe(UniversityRole::Dean->label());
 });
 
 it('updates role rights and applies approval action access checks', function () {
@@ -40,6 +70,22 @@ it('updates role rights and applies approval action access checks', function () 
     $this->actingAs($qaOfficer)
         ->get('/quality/approvals')
         ->assertOk();
+});
+
+it('allows system role rights to be turned off', function () {
+    $admin = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
+
+    QualityRolePermission::ensureDefaults();
+
+    $this->actingAs($admin)
+        ->patch('/quality/roles-rights/'.UniversityRole::QaOfficer->value, [
+            'role' => UniversityRole::QaOfficer->value,
+        ])
+        ->assertRedirect('/quality/roles-rights');
+
+    expect(QualityRolePermission::roleHas(UniversityRole::QaOfficer, 'view_reports'))->toBeFalse()
+        ->and(QualityRolePermission::roleHas(UniversityRole::QaOfficer, 'upload_reports'))->toBeFalse()
+        ->and(QualityRolePermission::roleHas(UniversityRole::QaOfficer, 'view_approval_queue'))->toBeFalse();
 });
 
 it('creates custom roles and allows users to be assigned to them', function () {
@@ -72,6 +118,49 @@ it('creates custom roles and allows users to be assigned to them', function () {
     expect($reviewer?->university_role)->toBe('faculty_qa_reviewer')
         ->and($reviewer?->department_id)->toBe($department->id)
         ->and($reviewer?->canViewPrintQueue())->toBeTrue();
+});
+
+it('deletes custom roles that are not assigned to users', function () {
+    $admin = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
+
+    QualityRolePermission::query()->create([
+        'role' => 'duplicate_role',
+        'label' => 'Duplicate Role',
+        'permissions' => ['view_print_queue'],
+        'is_system' => false,
+    ]);
+
+    $this->actingAs($admin)
+        ->delete('/quality/roles-rights/duplicate_role')
+        ->assertRedirect('/quality/roles-rights');
+
+    expect(QualityRolePermission::query()->where('role', 'duplicate_role')->exists())->toBeFalse();
+});
+
+it('does not delete system roles or roles currently assigned to users', function () {
+    $admin = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
+
+    QualityRolePermission::ensureDefaults();
+
+    QualityRolePermission::query()->create([
+        'role' => 'assigned_custom_role',
+        'label' => 'Assigned Custom Role',
+        'permissions' => ['view_print_queue'],
+        'is_system' => false,
+    ]);
+
+    User::factory()->create(['university_role' => 'assigned_custom_role']);
+
+    $this->actingAs($admin)
+        ->delete('/quality/roles-rights/'.UniversityRole::Dean->value)
+        ->assertStatus(409);
+
+    $this->actingAs($admin)
+        ->delete('/quality/roles-rights/assigned_custom_role')
+        ->assertStatus(409);
+
+    expect(QualityRolePermission::query()->where('role', UniversityRole::Dean->value)->exists())->toBeTrue()
+        ->and(QualityRolePermission::query()->where('role', 'assigned_custom_role')->exists())->toBeTrue();
 });
 
 it('keeps role rights away from users without manage user access', function () {
