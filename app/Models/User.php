@@ -8,6 +8,7 @@ use App\Enums\UniversityRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -34,8 +35,17 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
-            'university_role' => UniversityRole::class,
         ];
+    }
+
+    /**
+     * @return Attribute<string|null, string|UniversityRole|null>
+     */
+    protected function universityRole(): Attribute
+    {
+        return Attribute::make(
+            set: fn (string|UniversityRole|null $value): ?string => $value instanceof UniversityRole ? $value->value : $value,
+        );
     }
 
     /**
@@ -81,27 +91,55 @@ class User extends Authenticatable
 
     public function isQaOfficer(): bool
     {
-        return $this->university_role === UniversityRole::QaOfficer;
+        return $this->university_role === UniversityRole::QaOfficer->value;
     }
 
     public function canManageQualityStructure(): bool
     {
-        return $this->university_role?->canManageQualityStructure() ?? false;
+        return QualityRolePermission::roleHas($this->university_role, 'manage_structure');
+    }
+
+    public function canManageUsers(): bool
+    {
+        return QualityRolePermission::roleHas($this->university_role, 'manage_users');
     }
 
     public function canUploadQualityReports(): bool
     {
-        return $this->university_role?->canUploadReports() ?? false;
+        return QualityRolePermission::roleHas($this->university_role, 'upload_reports');
+    }
+
+    public function canApproveQualityReports(): bool
+    {
+        return QualityRolePermission::roleHas($this->university_role, 'approve_reports');
+    }
+
+    public function canViewApprovalQueue(): bool
+    {
+        return QualityRolePermission::roleHas($this->university_role, 'view_approval_queue')
+            || $this->canApproveQualityReports();
+    }
+
+    public function canViewPrintQueue(): bool
+    {
+        return QualityRolePermission::roleHas($this->university_role, 'view_print_queue');
+    }
+
+    public function canViewAuditLogs(): bool
+    {
+        return QualityRolePermission::roleHas($this->university_role, 'view_audit_logs');
     }
 
     /**
-     * @return array{role: string|null, roleLabel: string|null, school: array{id: int, name: string}|null, department: array{id: int, name: string}|null, canManageQualityStructure: bool, canUploadReports: bool}
+     * @return array<string, mixed>
      */
     public function qualityProfile(): array
     {
+        $permissions = QualityRolePermission::permissionsFor($this->university_role);
+
         return [
-            'role' => $this->university_role?->value,
-            'roleLabel' => $this->university_role?->label(),
+            'role' => $this->university_role,
+            'roleLabel' => QualityRolePermission::labelFor($this->university_role),
             'school' => $this->school ? [
                 'id' => $this->school->id,
                 'name' => $this->school->name,
@@ -110,8 +148,14 @@ class User extends Authenticatable
                 'id' => $this->department->id,
                 'name' => $this->department->name,
             ] : null,
+            'permissions' => $permissions,
+            'canManageUsers' => $this->canManageUsers(),
             'canManageQualityStructure' => $this->canManageQualityStructure(),
             'canUploadReports' => $this->canUploadQualityReports(),
+            'canViewApprovalQueue' => $this->canViewApprovalQueue(),
+            'canApproveReports' => $this->canApproveQualityReports(),
+            'canViewPrintQueue' => $this->canViewPrintQueue(),
+            'canViewAuditLogs' => $this->canViewAuditLogs(),
         ];
     }
 }

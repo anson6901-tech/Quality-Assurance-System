@@ -1,19 +1,18 @@
 <?php
 
 use App\Http\Controllers\Quality\AcademicYearController;
+use App\Http\Controllers\Quality\AuditLogController;
 use App\Http\Controllers\Quality\CourseController;
 use App\Http\Controllers\Quality\DepartmentController;
 use App\Http\Controllers\Quality\QualityReportController;
+use App\Http\Controllers\Quality\RoleRightController;
 use App\Http\Controllers\Quality\SchoolController;
 use App\Http\Controllers\Quality\UserController;
 use App\Http\Controllers\Teams\TeamInvitationController;
 use App\Http\Middleware\EnsureTeamMembership;
 use Illuminate\Support\Facades\Route;
-use Laravel\Fortify\Features;
 
-Route::inertia('/', 'Welcome', [
-    'canRegister' => Features::enabled(Features::registration()),
-])->name('home');
+Route::redirect('/', '/login')->name('home');
 
 Route::prefix('{current_team}')
     ->middleware(['auth', 'verified', EnsureTeamMembership::class])
@@ -31,9 +30,14 @@ Route::middleware(['auth', 'verified'])
     ->group(function () {
         Route::get('reports', [QualityReportController::class, 'index'])->name('reports.index');
         Route::get('approvals', [QualityReportController::class, 'approvals'])->name('reports.approvals');
+        Route::get('print-queue', [QualityReportController::class, 'printQueue'])->name('reports.print-queue');
         Route::get('reports/create', [QualityReportController::class, 'create'])->name('reports.create');
         Route::post('reports', [QualityReportController::class, 'store'])->name('reports.store');
         Route::post('reports/{report}/push', [QualityReportController::class, 'push'])->name('reports.push');
+        Route::post('reports/{report}/approve', [QualityReportController::class, 'approve'])->name('reports.approve');
+        Route::post('reports/{report}/unapprove', [QualityReportController::class, 'unapprove'])->name('reports.unapprove');
+        Route::get('reports/{report}/file', [QualityReportController::class, 'file'])->name('reports.file');
+        Route::get('reports/{report}/download', [QualityReportController::class, 'download'])->name('reports.download');
         Route::get('reports/{report}', [QualityReportController::class, 'show'])->name('reports.show');
 
         Route::get('schools', [SchoolController::class, 'index'])->name('schools.index');
@@ -54,6 +58,15 @@ Route::middleware(['auth', 'verified'])
 
         Route::get('users', [UserController::class, 'index'])->name('users.index');
         Route::post('users', [UserController::class, 'store'])->name('users.store');
+        Route::patch('users/{user}', [UserController::class, 'update'])->name('users.update');
+        Route::patch('users/{user}/password', [UserController::class, 'resetPassword'])->name('users.password');
+
+        Route::get('roles-rights', [RoleRightController::class, 'index'])->name('roles-rights.index');
+        Route::post('roles-rights', [RoleRightController::class, 'store'])->name('roles-rights.store');
+        Route::patch('roles-rights/{role}', [RoleRightController::class, 'update'])->name('roles-rights.update');
+
+        Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
+        Route::get('audit-logs/export', [AuditLogController::class, 'export'])->name('audit-logs.export');
     });
 
 require __DIR__.'/settings.php';

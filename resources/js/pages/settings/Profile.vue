@@ -2,9 +2,10 @@
 import { Form, Head, Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
-import DeleteUser from '@/components/DeleteUser.vue';
+import SecurityController from '@/actions/App/Http/Controllers/Settings/SecurityController';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PasswordInput from '@/components/PasswordInput.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -107,5 +108,71 @@ const user = computed(() => page.props.auth.user);
         </Form>
     </div>
 
-    <DeleteUser />
+    <div class="space-y-6">
+        <Heading
+            variant="small"
+            title="Reset password"
+            description="Update your password for this account"
+        />
+
+        <Form
+            v-bind="SecurityController.update.form()"
+            :options="{
+                preserveScroll: true,
+            }"
+            reset-on-success
+            :reset-on-error="[
+                'password',
+                'password_confirmation',
+                'current_password',
+            ]"
+            class="space-y-6"
+            v-slot="{ errors, processing }"
+        >
+            <div class="grid gap-2">
+                <Label for="current_password">Current password</Label>
+                <PasswordInput
+                    id="current_password"
+                    name="current_password"
+                    class="mt-1 block w-full"
+                    autocomplete="current-password"
+                    placeholder="Current password"
+                />
+                <InputError :message="errors.current_password" />
+            </div>
+
+            <div class="grid gap-2">
+                <Label for="password">New password</Label>
+                <PasswordInput
+                    id="password"
+                    name="password"
+                    class="mt-1 block w-full"
+                    autocomplete="new-password"
+                    placeholder="New password"
+                />
+                <InputError :message="errors.password" />
+            </div>
+
+            <div class="grid gap-2">
+                <Label for="password_confirmation">Confirm password</Label>
+                <PasswordInput
+                    id="password_confirmation"
+                    name="password_confirmation"
+                    class="mt-1 block w-full"
+                    autocomplete="new-password"
+                    placeholder="Confirm password"
+                />
+                <InputError :message="errors.password_confirmation" />
+            </div>
+
+            <div class="flex items-center gap-4">
+                <Button
+                    :disabled="processing"
+                    data-test="update-password-button"
+                >
+                    Save password
+                </Button>
+            </div>
+        </Form>
+    </div>
 </template>

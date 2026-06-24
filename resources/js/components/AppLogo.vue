@@ -1,17 +1,21 @@
-<script setup lang="ts">
-import AppLogoIcon from '@/components/AppLogoIcon.vue';
-</script>
+<script setup lang="ts"></script>
 
 <template>
     <div
-        class="flex aspect-square size-14 items-center justify-center rounded-2xl bg-[#00a64a] text-white"
+        class="flex size-16 shrink-0 items-center justify-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-white/20"
     >
-        <AppLogoIcon class="size-7 fill-current text-white" />
+        <img
+            src="/uhas-logo.png"
+            alt="UHAS"
+            class="h-full w-full object-contain"
+        />
     </div>
     <div class="ml-2 grid flex-1 text-left">
-        <span class="truncate text-xl leading-tight font-bold text-white">
+        <span class="truncate text-lg leading-tight font-bold text-white">
             QA Insight
         </span>
-        <span class="truncate text-sm text-white/68">Quality Assurance</span>
+        <span class="truncate text-xs font-medium text-white/68">
+            UHAS Quality Assurance
+        </span>
     </div>
 </template>

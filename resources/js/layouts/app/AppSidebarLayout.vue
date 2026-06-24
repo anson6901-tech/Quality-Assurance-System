@@ -20,7 +20,11 @@ withDefaults(defineProps<Props>(), {
         <AppSidebar />
         <AppContent variant="sidebar" class="overflow-x-hidden bg-[#f4f7fb]">
             <AppSidebarHeader :breadcrumbs="breadcrumbs" />
-            <slot />
+            <main
+                class="mx-auto w-full max-w-[1680px] px-6 py-7 sm:px-8 lg:px-10"
+            >
+                <slot />
+            </main>
         </AppContent>
         <Toaster />
     </AppShell>

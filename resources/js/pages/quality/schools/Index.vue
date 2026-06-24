@@ -63,9 +63,11 @@ const submit = () => {
                 description="University schools used to scope dean access and QA reports"
             />
 
-            <div class="overflow-hidden rounded-lg border">
+            <div
+                class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
+            >
                 <div
-                    class="grid grid-cols-[1fr_1fr_100px_100px_100px] gap-4 border-b bg-muted/50 px-4 py-3 text-sm font-medium"
+                    class="grid grid-cols-[1fr_1fr_100px_100px_100px] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
                 >
                     <span>School</span>
                     <span>Dean</span>
@@ -99,18 +101,31 @@ const submit = () => {
             </div>
         </section>
 
-        <form class="space-y-4 rounded-lg border p-4" @submit.prevent="submit">
+        <form
+            class="space-y-4 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-6 shadow-sm ring-1 ring-[#007a2f]/10"
+            @submit.prevent="submit"
+        >
             <Heading variant="small" title="Add school" />
 
             <div class="grid gap-2">
                 <Label for="name">Name</Label>
-                <Input id="name" v-model="form.name" required />
+                <Input
+                    id="name"
+                    v-model="form.name"
+                    class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                    required
+                />
                 <InputError :message="form.errors.name" />
             </div>
 
             <div class="grid gap-2">
                 <Label for="code">Code</Label>
-                <Input id="code" v-model="form.code" required />
+                <Input
+                    id="code"
+                    v-model="form.code"
+                    class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                    required
+                />
                 <InputError :message="form.errors.code" />
             </div>
 
@@ -119,7 +134,7 @@ const submit = () => {
                 <select
                     id="dean"
                     v-model="form.dean_id"
-                    class="h-9 rounded-md border bg-background px-3 text-sm"
+                    class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
                 >
                     <option value="">Assign later</option>
                     <option
@@ -133,7 +148,11 @@ const submit = () => {
                 <InputError :message="form.errors.dean_id" />
             </div>
 
-            <Button type="submit" :disabled="form.processing">
+            <Button
+                type="submit"
+                class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                :disabled="form.processing"
+            >
                 <Plus /> Add school
             </Button>
         </form>

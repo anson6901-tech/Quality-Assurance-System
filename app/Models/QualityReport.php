@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\UniversityRole;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -81,12 +80,27 @@ class QualityReport extends Model
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return match ($user->university_role) {
-            UniversityRole::QaOfficer, UniversityRole::QaDirector => $query,
-            UniversityRole::Dean => $query->where('school_id', $user->school_id),
-            UniversityRole::Hod => $query->where('department_id', $user->department_id),
-            UniversityRole::Lecturer => $query->where('lecturer_id', $user->id),
-            null => $query->whereRaw('1 = 0'),
-        };
+        if (QualityRolePermission::roleHas($user->university_role, 'view_all_reports')) {
+            return $query;
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_school_reports')) {
+            return $query->where('school_id', $user->school_id);
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_department_reports')) {
+            return $query->where('department_id', $user->department_id);
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_own_reports')) {
+            return $query->where(function (Builder $query) use ($user): void {
+                $query
+                    ->where('lecturer_id', $user->id)
+                    ->orWhereHas('courses', fn (Builder $query) => $query
+                        ->whereHas('lecturers', fn (Builder $query) => $query->whereKey($user->id)));
+            });
+        }
+
+        return $query->whereRaw('1 = 0');
     }
 }

@@ -2,26 +2,35 @@
 
 namespace App\Http\Controllers\Quality;
 
-use App\Enums\UniversityRole;
 use App\Http\Controllers\Controller;
 use App\Models\AcademicYear;
 use App\Models\Course;
 use App\Models\Department;
 use App\Models\QualityReport;
+use App\Models\QualityRolePermission;
 use App\Models\School;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class QualityReportController extends Controller
 {
     public function index(Request $request): Response
     {
+        abort_unless($request->user()->canUploadQualityReports(), 403);
+
+        $filters = $this->validateReportFilters($request, includeStatus: true);
+
         $reports = QualityReport::query()
-            ->visibleTo($request->user())
+            ->where('uploaded_by', $request->user()->id)
+            ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
             ->with(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name'])
             ->latest()
             ->get()
@@ -31,14 +40,22 @@ class QualityReportController extends Controller
             'reports' => $reports,
             'canUploadReports' => $request->user()->canUploadQualityReports(),
             'approvalQueue' => false,
+            'printQueue' => false,
+            'canApproveReports' => false,
+            'filters' => $filters,
+            'filterOptions' => $this->reportFilterOptions(includeStatuses: true),
         ]);
     }
 
     public function approvals(Request $request): Response
     {
+        abort_unless($this->canViewApprovalQueue($request), 403);
+
+        $filters = $this->validateReportFilters($request);
+
         $reports = QualityReport::query()
-            ->visibleTo($request->user())
-            ->where('status', 'under_review')
+            ->whereIn('status', ['under_review', 'approved'])
+            ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
             ->with(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name'])
             ->latest()
             ->get()
@@ -48,6 +65,36 @@ class QualityReportController extends Controller
             'reports' => $reports,
             'canUploadReports' => $request->user()->canUploadQualityReports(),
             'approvalQueue' => true,
+            'printQueue' => false,
+            'canApproveReports' => $this->canApproveReports($request),
+            'filters' => $filters,
+            'filterOptions' => $this->reportFilterOptions(),
+        ]);
+    }
+
+    public function printQueue(Request $request): Response
+    {
+        abort_unless($request->user()->canViewPrintQueue(), 403);
+
+        $filters = $this->validateReportFilters($request);
+
+        $reports = QualityReport::query()
+            ->visibleTo($request->user())
+            ->where('status', 'approved')
+            ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
+            ->with(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name'])
+            ->latest()
+            ->get()
+            ->map(fn (QualityReport $report) => $this->serializeReport($report));
+
+        return Inertia::render('quality/reports/Index', [
+            'reports' => $reports,
+            'canUploadReports' => $request->user()->canUploadQualityReports(),
+            'approvalQueue' => false,
+            'printQueue' => true,
+            'canApproveReports' => false,
+            'filters' => $filters,
+            'filterOptions' => $this->reportFilterOptions(),
         ]);
     }
 
@@ -66,7 +113,7 @@ class QualityReportController extends Controller
                 ->orderByDesc('id')
                 ->get(['id', 'name', 'status']),
             'lecturers' => User::query()
-                ->where('university_role', UniversityRole::Lecturer->value)
+                ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
                 ->with(['school:id,name', 'department:id,name'])
                 ->orderBy('name')
                 ->get(['id', 'name', 'email', 'school_id', 'department_id', 'university_role'])
@@ -102,38 +149,28 @@ class QualityReportController extends Controller
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100'],
-            'status' => ['required', 'string', Rule::in(['draft', 'submitted'])],
             'academic_year_id' => [
                 'required',
                 'integer',
                 Rule::exists('academic_years', 'id')->where('status', 'active'),
             ],
             'summary' => ['nullable', 'string'],
-            'school_id' => ['required', 'integer', Rule::exists('schools', 'id')],
-            'department_id' => ['required', 'integer', Rule::exists('departments', 'id')],
             'lecturer_id' => ['required', 'integer', Rule::exists('users', 'id')],
             'course_ids' => ['required', 'array', 'min:1'],
             'course_ids.*' => ['integer', Rule::exists('courses', 'id')],
-            'report_file' => ['nullable', 'file', 'max:10240'],
+            'report_file' => ['nullable', 'file', 'mimes:pdf', 'max:10240'],
         ]);
 
         $lecturer = User::query()
             ->whereKey($validated['lecturer_id'])
-            ->where('university_role', UniversityRole::Lecturer->value)
+            ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
             ->firstOrFail();
 
-        abort_unless(
-            $lecturer->school_id === (int) $validated['school_id']
-                && $lecturer->department_id === (int) $validated['department_id'],
-            422,
-        );
-
-        abort_unless(
-            Department::whereKey($validated['department_id'])
-                ->where('school_id', $validated['school_id'])
-                ->exists(),
-            422,
-        );
+        if (! $lecturer->school_id || ! $lecturer->department_id) {
+            throw ValidationException::withMessages([
+                'lecturer_id' => __('Select a lecturer with an assigned school and department.'),
+            ]);
+        }
 
         $courseIds = Course::query()
             ->whereIn('id', $validated['course_ids'])
@@ -146,11 +183,11 @@ class QualityReportController extends Controller
         $report = QualityReport::create([
             'title' => $validated['title'],
             'category' => $validated['category'],
-            'status' => $validated['status'],
+            'status' => 'submitted',
             'academic_year_id' => $validated['academic_year_id'],
             'summary' => $validated['summary'] ?? null,
-            'school_id' => $validated['school_id'],
-            'department_id' => $validated['department_id'],
+            'school_id' => $lecturer->school_id,
+            'department_id' => $lecturer->department_id,
             'lecturer_id' => $validated['lecturer_id'],
             'file_path' => $filePath,
             'uploaded_by' => $request->user()->id,
@@ -176,12 +213,33 @@ class QualityReportController extends Controller
         return to_route('quality.reports.approvals');
     }
 
+    public function approve(Request $request, QualityReport $report): RedirectResponse
+    {
+        abort_unless($this->canApproveReports($request), 403);
+        abort_unless($report->status === 'under_review', 409);
+
+        $report->update(['status' => 'approved']);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report approved and sent to print queue.')]);
+
+        return to_route('quality.reports.print-queue');
+    }
+
+    public function unapprove(Request $request, QualityReport $report): RedirectResponse
+    {
+        abort_unless($this->canApproveReports($request), 403);
+        abort_unless($report->status === 'approved', 409);
+
+        $report->update(['status' => 'under_review']);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report unapproved and removed from print queue.')]);
+
+        return to_route('quality.reports.approvals');
+    }
+
     public function show(Request $request, QualityReport $report): Response
     {
-        abort_unless(
-            QualityReport::query()->visibleTo($request->user())->whereKey($report->id)->exists(),
-            403,
-        );
+        abort_unless($this->canViewReport($request, $report), 403);
 
         $report->load(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name,email']);
 
@@ -189,6 +247,30 @@ class QualityReportController extends Controller
             'report' => $this->serializeReport($report, includeDetails: true),
             'canPushReport' => $this->canPushReport($request, $report),
         ]);
+    }
+
+    public function file(Request $request, QualityReport $report): BinaryFileResponse
+    {
+        abort_unless($this->canViewReport($request, $report), 403);
+        abort_if(! $report->file_path || ! Storage::disk('public')->exists($report->file_path), 404);
+
+        return response()->file(Storage::disk('public')->path($report->file_path), [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="report-'.$report->id.'.pdf"',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function download(Request $request, QualityReport $report): StreamedResponse
+    {
+        abort_unless($report->status === 'approved', 403);
+        abort_unless($this->canViewReport($request, $report), 403);
+        abort_if(! $report->file_path || ! Storage::disk('public')->exists($report->file_path), 404);
+
+        return Storage::disk('public')->download(
+            $report->file_path,
+            str($report->title)->slug()->append('.pdf')->toString(),
+        );
     }
 
     /**
@@ -208,6 +290,13 @@ class QualityReportController extends Controller
             ] : null,
             'summary' => $includeDetails ? $report->summary : str($report->summary ?? '')->limit(140)->toString(),
             'filePath' => $report->file_path,
+            'fileUrl' => $report->file_path ? route('quality.reports.file', $report) : null,
+            'downloadUrl' => $report->file_path ? route('quality.reports.download', $report) : null,
+            'location' => match ($report->status) {
+                'approved' => 'Print Queue',
+                'under_review' => 'Approval',
+                default => 'Report Module',
+            },
             'school' => $report->school ? ['id' => $report->school->id, 'name' => $report->school->name] : null,
             'department' => $report->department ? ['id' => $report->department->id, 'name' => $report->department->name] : null,
             'lecturer' => $report->lecturer ? [
@@ -235,5 +324,114 @@ class QualityReportController extends Controller
         return $request->user()->canUploadQualityReports()
             && $report->uploaded_by === $request->user()->id
             && in_array($report->status, ['draft', 'submitted'], true);
+    }
+
+    private function canViewReport(Request $request, QualityReport $report): bool
+    {
+        if (in_array($report->status, ['draft', 'submitted'], true)) {
+            return $report->uploaded_by === $request->user()->id;
+        }
+
+        if ($report->status === 'under_review') {
+            return $this->canViewApprovalQueue($request);
+        }
+
+        return QualityReport::query()
+            ->visibleTo($request->user())
+            ->whereKey($report->id)
+            ->exists();
+    }
+
+    private function canApproveReports(Request $request): bool
+    {
+        return $request->user()->canApproveQualityReports();
+    }
+
+    private function canViewApprovalQueue(Request $request): bool
+    {
+        return $request->user()->canViewApprovalQueue();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validateReportFilters(Request $request, bool $includeStatus = false): array
+    {
+        $rules = [
+            'lecturer_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
+            'academic_year_id' => ['nullable', 'integer', Rule::exists('academic_years', 'id')],
+            'school_id' => ['nullable', 'integer', Rule::exists('schools', 'id')],
+            'department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')],
+        ];
+
+        if ($includeStatus) {
+            $rules['status'] = ['nullable', 'string', Rule::in(['draft', 'submitted', 'under_review', 'approved'])];
+        }
+
+        return $request->validate($rules);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    private function applyReportFilters($query, array $filters): void
+    {
+        $query
+            ->when($filters['lecturer_id'] ?? null, fn ($query, $lecturerId) => $query->where('lecturer_id', $lecturerId))
+            ->when($filters['academic_year_id'] ?? null, fn ($query, $academicYearId) => $query->where('academic_year_id', $academicYearId))
+            ->when($filters['school_id'] ?? null, fn ($query, $schoolId) => $query->where('school_id', $schoolId))
+            ->when($filters['department_id'] ?? null, fn ($query, $departmentId) => $query->where('department_id', $departmentId))
+            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function reportFilterOptions(bool $includeStatuses = false): array
+    {
+        $options = [
+            'lecturers' => User::query()
+                ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->map(fn (User $lecturer) => [
+                    'id' => $lecturer->id,
+                    'name' => $lecturer->name,
+                ]),
+            'academicYears' => AcademicYear::query()
+                ->orderByDesc('starts_on')
+                ->orderByDesc('id')
+                ->get(['id', 'name'])
+                ->map(fn (AcademicYear $academicYear) => [
+                    'id' => $academicYear->id,
+                    'name' => $academicYear->name,
+                ]),
+            'schools' => School::query()
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->map(fn (School $school) => [
+                    'id' => $school->id,
+                    'name' => $school->name,
+                ]),
+            'departments' => Department::query()
+                ->orderBy('name')
+                ->get(['id', 'school_id', 'name'])
+                ->map(fn (Department $department) => [
+                    'id' => $department->id,
+                    'schoolId' => $department->school_id,
+                    'name' => $department->name,
+                ]),
+        ];
+
+        if ($includeStatuses) {
+            $options['statuses'] = [
+                ['id' => 'draft', 'name' => 'Draft'],
+                ['id' => 'submitted', 'name' => 'Report Module'],
+                ['id' => 'under_review', 'name' => 'Approval'],
+                ['id' => 'approved', 'name' => 'Print Queue'],
+            ];
+        }
+
+        return $options;
     }
 }

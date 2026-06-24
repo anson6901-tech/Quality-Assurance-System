@@ -7,10 +7,12 @@ import {
     ClipboardList,
     BookOpenCheck,
     GraduationCap,
+    History,
     LayoutGrid,
     LogOut,
     Printer,
     Settings,
+    ShieldCheck,
     Users,
 } from 'lucide-vue-next';
 import { computed } from 'vue';
@@ -42,31 +44,52 @@ const mainNavItems = computed<NavItem[]>(() => [
         href: dashboardUrl.value,
         icon: LayoutGrid,
     },
-    {
-        title: 'Reports',
-        href: '/quality/reports',
-        icon: ClipboardList,
-    },
-    {
-        title: 'Approvals',
-        href: '/quality/approvals',
-        icon: CheckCircle2,
-    },
-    {
-        title: 'Print Queue',
-        href: '/quality/reports',
-        icon: Printer,
-    },
+    ...(page.props.qualityProfile?.canUploadReports
+        ? [
+              {
+                  title: 'Reports',
+                  href: '/quality/reports',
+                  icon: ClipboardList,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canViewApprovalQueue
+        ? [
+              {
+                  title: 'Approvals',
+                  href: '/quality/approvals',
+                  icon: CheckCircle2,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canViewPrintQueue
+        ? [
+              {
+                  title: 'Print Queue',
+                  href: '/quality/print-queue',
+                  icon: Printer,
+              },
+          ]
+        : []),
 ]);
 
 const administrationNavItems = computed<NavItem[]>(() => [
-    ...(page.props.qualityProfile?.canManageQualityStructure
+    ...(page.props.qualityProfile?.canManageUsers
         ? [
               {
                   title: 'Users',
                   href: '/quality/users',
                   icon: Users,
               },
+              {
+                  title: 'Roles & Rights',
+                  href: '/quality/roles-rights',
+                  icon: ShieldCheck,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canManageQualityStructure
+        ? [
               {
                   title: 'Schools',
                   href: '/quality/schools',
@@ -86,6 +109,15 @@ const administrationNavItems = computed<NavItem[]>(() => [
                   title: 'Courses',
                   href: '/quality/courses',
                   icon: BookOpenCheck,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canViewAuditLogs
+        ? [
+              {
+                  title: 'Audit Logs',
+                  href: '/quality/audit-logs',
+                  icon: History,
               },
           ]
         : []),
@@ -109,15 +141,15 @@ const footerNavItems: NavItem[] = [
     <Sidebar
         collapsible="icon"
         variant="sidebar"
-        class="border-r border-white/8 bg-[#002d18]"
+        class="border-r border-white/8 bg-[#002d18] shadow-[12px_0_30px_rgba(0,45,24,0.08)]"
     >
-        <SidebarHeader class="border-b border-white/8 px-6 py-9">
+        <SidebarHeader class="border-b border-white/8 px-5 py-6">
             <SidebarMenu>
                 <SidebarMenuItem>
                     <SidebarMenuButton
                         size="lg"
                         as-child
-                        class="h-16 p-0 hover:bg-transparent data-[active=true]:bg-transparent"
+                        class="h-18 p-0 hover:bg-transparent data-[active=true]:bg-transparent"
                     >
                         <Link :href="dashboardUrl">
                             <AppLogo />
@@ -127,15 +159,15 @@ const footerNavItems: NavItem[] = [
             </SidebarMenu>
         </SidebarHeader>
 
-        <SidebarContent class="bg-[#002d18] py-7">
+        <SidebarContent class="bg-[#002d18] py-6">
             <NavMain :items="mainNavItems" />
 
             <SidebarGroup
                 v-if="administrationNavItems.length"
-                class="mt-11 px-3"
+                class="mt-9 px-3"
             >
                 <SidebarGroupLabel
-                    class="px-3 text-base font-semibold text-white/62 group-data-[collapsible=icon]:sr-only"
+                    class="px-3 text-xs font-bold tracking-[0.16em] text-white/50 uppercase group-data-[collapsible=icon]:sr-only"
                 >
                     Administration
                 </SidebarGroupLabel>
@@ -147,7 +179,7 @@ const footerNavItems: NavItem[] = [
                         <SidebarMenuButton
                             as-child
                             :tooltip="item.title"
-                            class="h-12 rounded-2xl px-3 text-lg font-semibold text-white/92 hover:bg-white/9 hover:text-white data-[active=true]:bg-[#0b3b22] data-[active=true]:text-white [&>svg]:size-5"
+                            class="h-11 rounded-xl px-3 text-base font-semibold text-white/88 hover:bg-white/9 hover:text-white data-[active=true]:bg-[#0b3b22] data-[active=true]:text-white [&>svg]:size-5"
                         >
                             <Link :href="item.href">
                                 <component :is="item.icon" />
@@ -159,7 +191,7 @@ const footerNavItems: NavItem[] = [
             </SidebarGroup>
         </SidebarContent>
 
-        <SidebarFooter class="border-t border-white/8 bg-[#002d18] px-3 py-7">
+        <SidebarFooter class="border-t border-white/8 bg-[#002d18] px-3 py-6">
             <SidebarMenu>
                 <SidebarMenuItem
                     v-for="item in footerNavItems"
@@ -167,7 +199,7 @@ const footerNavItems: NavItem[] = [
                 >
                     <SidebarMenuButton
                         as-child
-                        class="h-12 rounded-2xl px-3 text-lg font-medium text-white/92 hover:bg-white/9 hover:text-white [&>svg]:size-5"
+                        class="h-11 rounded-xl px-3 text-base font-medium text-white/88 hover:bg-white/9 hover:text-white [&>svg]:size-5"
                     >
                         <button
                             v-if="item.title === 'Sign out'"

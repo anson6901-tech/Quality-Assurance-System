@@ -3,8 +3,14 @@ export type QualityProfile = {
     roleLabel: string | null;
     school: { id: number; name: string } | null;
     department: { id: number; name: string } | null;
+    permissions: string[];
+    canManageUsers: boolean;
     canManageQualityStructure: boolean;
     canUploadReports: boolean;
+    canViewApprovalQueue: boolean;
+    canApproveReports: boolean;
+    canViewPrintQueue: boolean;
+    canViewAuditLogs: boolean;
 };
 
 export type QualityReport = {
@@ -15,6 +21,9 @@ export type QualityReport = {
     academicYear: AcademicYearOption | null;
     summary: string | null;
     filePath: string | null;
+    fileUrl: string | null;
+    downloadUrl: string | null;
+    location: string;
     school: { id: number; name: string } | null;
     department: { id: number; name: string } | null;
     lecturer: LecturerOption | null;

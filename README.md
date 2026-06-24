@@ -1,0 +1,450 @@
+# Quality Assurance System
+
+This is a Laravel, Inertia, and Vue application for managing university quality assurance work. It covers user and role management, academic structure setup, report upload and approval, print queue access, audit logging, and personal account settings.
+
+## Technology Stack
+
+- Backend: Laravel 13, PHP 8.3+
+- Frontend: Vue 3, Inertia, Vite, Tailwind CSS
+- Database: SQLite, MySQL, PostgreSQL, or any Laravel-supported database
+- Authentication: Laravel Fortify
+- Testing: Pest PHP and Vue TypeScript checks
+
+## First-Time Setup
+
+1. Install PHP dependencies.
+
+```bash
+composer install
+```
+
+2. Install JavaScript dependencies.
+
+```bash
+npm install
+```
+
+3. Create the environment file.
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+4. Generate the application key.
+
+```bash
+php artisan key:generate
+```
+
+5. Configure the database in `.env`.
+
+For local SQLite development, create the database file and set:
+
+```env
+DB_CONNECTION=sqlite
+DB_DATABASE=database/database.sqlite
+```
+
+Then run:
+
+```bash
+php artisan migrate --seed
+```
+
+6. Link public storage for uploaded report files.
+
+```bash
+php artisan storage:link
+```
+
+7. Start the app locally.
+
+```bash
+php artisan serve
+npm run dev
+```
+
+Open the app at:
+
+```text
+http://127.0.0.1:8000
+```
+
+## Useful Development Commands
+
+```bash
+php artisan test
+npm run types:check
+npm run build
+```
+
+Before production deployment, always run:
+
+```bash
+php artisan test
+npm run build
+```
+
+## Production Deployment Checklist
+
+1. Do not commit `.env`, `vendor`, `node_modules`, `public/build`, or log files.
+2. Set production environment values in the server `.env`.
+
+```env
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://your-domain.example
+```
+
+3. Install optimized PHP dependencies.
+
+```bash
+composer install --no-dev --optimize-autoloader
+```
+
+4. Build frontend assets.
+
+```bash
+npm ci
+npm run build
+```
+
+5. Run migrations.
+
+```bash
+php artisan migrate --force
+```
+
+6. Cache Laravel configuration.
+
+```bash
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+```
+
+7. Make sure the web server can write to:
+
+```text
+storage/
+bootstrap/cache/
+```
+
+8. Make sure the queue worker is running if queued jobs are used.
+
+```bash
+php artisan queue:work
+```
+
+## Backend Overview
+
+The backend is organized around Laravel routes, controllers, models, policies, middleware, and migrations.
+
+### Main Request Flow
+
+1. A user signs in through Fortify authentication.
+2. Laravel middleware loads the authenticated user and shared Inertia data.
+3. Routes in `routes/web.php` send quality assurance pages to controllers under `app/Http/Controllers/Quality`.
+4. Controllers validate the request, check the user's permissions, read or update Eloquent models, then render Vue pages with Inertia.
+5. Vue pages in `resources/js/pages` receive props from the controller and submit forms back to Laravel routes.
+6. `RecordAuditLog` records important quality module visits and write actions.
+
+## Main Modules
+
+### Authentication and Profile Settings
+
+Key files:
+
+- `app/Providers/FortifyServiceProvider.php`
+- `app/Http/Controllers/Settings/ProfileController.php`
+- `app/Http/Controllers/Settings/SecurityController.php`
+- `routes/settings.php`
+- `resources/js/pages/settings/Profile.vue`
+
+Settings has been simplified to only:
+
+- edit name and email
+- reset password
+
+The password update endpoint is still handled by `SecurityController@update`, but the form lives on the profile settings page.
+
+### Users and Roles
+
+Key files:
+
+- `app/Http/Controllers/Quality/UserController.php`
+- `app/Http/Controllers/Quality/RoleRightController.php`
+- `app/Models/User.php`
+- `app/Models/QualityRolePermission.php`
+- `app/Enums/UniversityRole.php`
+
+Users have a `university_role`. Each role maps to permissions in `QualityRolePermission`.
+
+Important permissions include:
+
+- `manage_users`
+- `manage_structure`
+- `upload_reports`
+- `view_approval_queue`
+- `approve_reports`
+- `view_print_queue`
+- `view_audit_logs`
+
+If a user cannot see a module, check their role permissions first.
+
+### Academic Structure
+
+Key files:
+
+- `SchoolController.php`
+- `DepartmentController.php`
+- `CourseController.php`
+- `AcademicYearController.php`
+- `School`, `Department`, `Course`, and `AcademicYear` models
+
+The structure is connected like this:
+
+```text
+School -> Departments -> Courses
+Academic Year -> Quality Reports
+Users -> School and/or Department
+```
+
+Reports depend on this setup. If uploads fail because lecturers, schools, departments, courses, or academic years are missing, seed or create those records first.
+
+### Quality Reports
+
+Key files:
+
+- `app/Http/Controllers/Quality/QualityReportController.php`
+- `app/Models/QualityReport.php`
+- `resources/js/pages/quality/reports`
+- `database/migrations/*quality_reports*`
+
+Report flow:
+
+```text
+Uploaded by QA user
+Submitted
+Pushed to approval
+Under review
+Approved
+Print queue
+Downloaded or printed
+```
+
+Important status values:
+
+- `draft`
+- `submitted`
+- `under_review`
+- `approved`
+
+Reports are linked to:
+
+- academic year
+- school
+- department
+- lecturer
+- one or more courses
+- uploader
+- optional PDF file in public storage
+
+Visibility is controlled in `QualityReport::scopeVisibleTo()`. If someone cannot see a report, check:
+
+- report status
+- user role permission
+- user's assigned school or department
+- lecturer/course relationship
+
+### Approval and Print Queue
+
+Approval and print queue are handled by `QualityReportController`.
+
+Users need:
+
+- `view_approval_queue` to see reports waiting for approval
+- `approve_reports` to approve or unapprove reports
+- `view_print_queue` to see approved reports ready for printing
+
+Only approved reports can be downloaded from the print queue.
+
+### Audit Logs
+
+Key files:
+
+- `app/Http/Middleware/RecordAuditLog.php`
+- `app/Models/AuditLog.php`
+- `app/Http/Controllers/Quality/AuditLogController.php`
+- `resources/js/pages/quality/audit-logs/Index.vue`
+
+The audit system records:
+
+- user login events
+- module visits
+- create/update/delete actions
+- route name
+- response status
+- target record
+- submitted field names and safe values
+- actor role context
+- IP address and user agent
+
+Sensitive values such as passwords are not stored.
+
+Audit logs can be exported from:
+
+```text
+/quality/audit-logs/export
+```
+
+Only users with `view_audit_logs` can access the audit screen and export.
+
+## Database Seed Data
+
+The seeder creates sample schools, departments, users, courses, one academic year, and one sample quality report.
+
+Default local test users include:
+
+```text
+test@example.com
+dean@example.com
+hod@example.com
+lecturer@example.com
+```
+
+In local development, seeded users use:
+
+```text
+password
+```
+
+Change all seeded or temporary passwords before production use.
+
+## Troubleshooting
+
+### Page shows 403 forbidden
+
+Check the user's role and permissions in:
+
+```text
+quality_role_permissions
+```
+
+Also check:
+
+- `User::canManageUsers()`
+- `User::canManageQualityStructure()`
+- `User::canUploadQualityReports()`
+- `User::canViewAuditLogs()`
+- `QualityReport::scopeVisibleTo()`
+
+### Uploaded PDFs do not open
+
+Run:
+
+```bash
+php artisan storage:link
+```
+
+Confirm the file exists under:
+
+```text
+storage/app/public/quality-reports
+```
+
+Confirm the web server can read `storage/`.
+
+### Frontend changes do not appear
+
+For development:
+
+```bash
+npm run dev
+```
+
+For production:
+
+```bash
+npm run build
+```
+
+Then clear caches if needed:
+
+```bash
+php artisan optimize:clear
+```
+
+### Routes or config seem stale
+
+Clear Laravel caches:
+
+```bash
+php artisan optimize:clear
+```
+
+Then rebuild production caches:
+
+```bash
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+```
+
+### Database errors after deployment
+
+Run:
+
+```bash
+php artisan migrate --force
+```
+
+If the issue is missing seed data, inspect the relevant tables before running seeders in production.
+
+### Audit export does not download
+
+Check that the user has:
+
+```text
+view_audit_logs
+```
+
+Then confirm the route exists:
+
+```bash
+php artisan route:list --path=audit-logs
+```
+
+## Important Files
+
+```text
+routes/web.php                         Main quality module routes
+routes/settings.php                    Profile and password settings routes
+app/Models/User.php                    User permissions and quality profile
+app/Models/QualityRolePermission.php   Role-permission mapping
+app/Models/QualityReport.php           Report relationships and visibility
+app/Http/Middleware/RecordAuditLog.php Audit capture
+database/migrations                    Database structure
+database/seeders/DatabaseSeeder.php    Local seed data
+resources/js/pages                     Vue page components
+```
+
+## Notes for Future Developers
+
+When fixing production issues, start with these questions:
+
+1. Is the user authenticated?
+2. Does the user role have the needed permission?
+3. Does the route point to the expected controller method?
+4. Does the controller validate the submitted fields correctly?
+5. Does the model relationship or scope filter out the record?
+6. Did a migration or storage link fail?
+7. Does the audit log show what the user attempted?
+
+The backend is permission-first. Most "missing page" or "missing data" issues are caused by role permissions or visibility scopes, not by the Vue page itself.

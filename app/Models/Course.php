@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\UniversityRole;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -28,7 +27,7 @@ class Course extends Model
     public function lecturers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'course_lecturer', 'course_id', 'lecturer_id')
-            ->where('university_role', UniversityRole::Lecturer->value)
+            ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
             ->withTimestamps();
     }
 

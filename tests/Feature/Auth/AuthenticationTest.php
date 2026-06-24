@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\UniversityRole;
 use App\Models\User;
 use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Fortify\Features;
@@ -12,6 +13,7 @@ test('login screen can be rendered', function () {
 
 test('users can authenticate using the login screen', function () {
     $user = User::factory()->create();
+    $team = $user->currentTeam;
 
     $response = $this->post(route('login.store'), [
         'email' => $user->email,
@@ -19,7 +21,36 @@ test('users can authenticate using the login screen', function () {
     ]);
 
     $this->assertAuthenticated();
-    $response->assertRedirect(route('dashboard'));
+    $response->assertRedirect(route('dashboard', ['current_team' => $team->slug]));
+});
+
+test('authenticated users visiting login are redirected to their team dashboard', function () {
+    $user = User::factory()->create();
+    $team = $user->currentTeam;
+
+    $this->actingAs($user)
+        ->get(route('login'))
+        ->assertRedirect(route('dashboard', ['current_team' => $team->slug]));
+});
+
+test('users without a team are given a team during login', function () {
+    $user = User::query()->create([
+        'name' => 'No Team User',
+        'email' => 'no-team@example.com',
+        'password' => 'password',
+        'email_verified_at' => now(),
+        'university_role' => UniversityRole::Lecturer,
+    ]);
+
+    $response = $this->post(route('login.store'), [
+        'email' => $user->email,
+        'password' => 'password',
+    ]);
+
+    $team = $user->refresh()->currentTeam;
+
+    expect($team)->not->toBeNull();
+    $response->assertRedirect(route('dashboard', ['current_team' => $team->slug]));
 });
 
 test('users with two factor enabled are redirected to two factor challenge', function () {

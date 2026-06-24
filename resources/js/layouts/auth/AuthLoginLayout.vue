@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
-import { GraduationCap, ShieldCheck } from 'lucide-vue-next';
+import { ShieldCheck } from 'lucide-vue-next';
 import { home } from '@/routes';
 
 defineProps<{
@@ -15,18 +15,27 @@ defineProps<{
             class="relative flex min-h-[44rem] flex-col overflow-hidden bg-[#007a2f] px-8 py-10 text-white sm:px-12 lg:min-h-svh lg:px-20 lg:py-18"
         >
             <div
-                class="absolute inset-0 bg-[radial-gradient(circle_at_70%_10%,rgba(0,183,85,0.72),transparent_34%),linear-gradient(135deg,#006927_0%,#008f38_46%,#00a64a_100%)]"
+                class="absolute inset-0 bg-[linear-gradient(135deg,#003b20_0%,#007a2f_54%,#00a64a_100%)]"
             />
 
             <div class="relative z-10 flex flex-1 flex-col">
                 <Link :href="home()" class="flex items-center gap-5">
                     <span
-                        class="flex size-[70px] items-center justify-center rounded-[28px] bg-white/14 ring-1 ring-white/10"
+                        class="flex size-[82px] items-center justify-center rounded-2xl bg-white p-2 shadow-sm ring-1 ring-white/15"
                     >
-                        <GraduationCap class="size-9" />
+                        <img
+                            src="/uhas-logo.png"
+                            alt="UHAS"
+                            class="h-full w-full object-contain"
+                        />
                     </span>
-                    <span class="text-3xl font-bold tracking-normal">
-                        UHAS QA Insight
+                    <span class="grid">
+                        <span class="text-3xl font-bold tracking-normal">
+                            QA Insight
+                        </span>
+                        <span class="text-base font-medium text-white/70">
+                            University of Health and Allied Sciences
+                        </span>
                     </span>
                 </Link>
 
@@ -38,7 +47,7 @@ defineProps<{
                     </h1>
 
                     <p
-                        class="mt-12 max-w-[44rem] text-[1.65rem] leading-[1.55] text-white/82"
+                        class="mt-8 max-w-[44rem] text-xl leading-8 text-white/82"
                     >
                         A unified workspace for QA officers, deans, HODs and
                         lecturers - from school reports to approved insights.
@@ -48,7 +57,7 @@ defineProps<{
                 <div class="mt-auto pt-14">
                     <div class="grid max-w-[46rem] gap-6 sm:grid-cols-3">
                         <div
-                            class="rounded-[26px] border border-white/18 bg-white/12 px-6 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                            class="rounded-xl border border-white/18 bg-white/10 px-6 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
                         >
                             <div class="text-4xl font-extrabold">1.2k</div>
                             <div
@@ -58,7 +67,7 @@ defineProps<{
                             </div>
                         </div>
                         <div
-                            class="rounded-[26px] border border-white/18 bg-white/12 px-6 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                            class="rounded-xl border border-white/18 bg-white/10 px-6 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
                         >
                             <div class="text-4xl font-extrabold">184</div>
                             <div
@@ -68,7 +77,7 @@ defineProps<{
                             </div>
                         </div>
                         <div
-                            class="rounded-[26px] border border-white/18 bg-white/12 px-6 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                            class="rounded-xl border border-white/18 bg-white/10 px-6 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
                         >
                             <div class="text-4xl font-extrabold">12</div>
                             <div
@@ -79,7 +88,7 @@ defineProps<{
                         </div>
                     </div>
 
-                    <p class="mt-5 text-2xl text-white/72">
+                    <p class="mt-5 text-base text-white/72">
                         (c) 2026 UHAS Office of Quality Assurance
                     </p>
                 </div>
@@ -89,7 +98,9 @@ defineProps<{
         <main
             class="flex min-h-svh items-center justify-center px-8 py-12 sm:px-12"
         >
-            <div class="w-full max-w-[44.8rem]">
+            <div
+                class="w-full max-w-[40rem] rounded-2xl bg-white p-8 shadow-sm ring-1 ring-[#dbe1e8]"
+            >
                 <div
                     class="mb-5 inline-flex items-center gap-2 rounded-full bg-[#e9eef5] px-5 py-2 text-base font-semibold text-[#0f1b33]"
                 >
@@ -100,13 +111,13 @@ defineProps<{
                 <div class="space-y-4">
                     <h2
                         v-if="title"
-                        class="text-[3rem] leading-tight font-extrabold tracking-normal text-[#071126]"
+                        class="text-4xl leading-tight font-extrabold tracking-normal text-[#071126]"
                     >
                         {{ title }}
                     </h2>
                     <p
                         v-if="description"
-                        class="text-[1.55rem] leading-relaxed text-[#5f6b7d]"
+                        class="text-lg leading-relaxed text-[#5f6b7d]"
                     >
                         {{ description }}
                     </p>

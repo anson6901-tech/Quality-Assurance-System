@@ -20,7 +20,7 @@ const { isCurrentUrl } = useCurrentUrl();
 <template>
     <SidebarGroup class="px-3 py-0">
         <SidebarGroupLabel
-            class="px-3 text-base font-semibold text-white/62 group-data-[collapsible=icon]:sr-only"
+            class="px-3 text-xs font-bold tracking-[0.16em] text-white/50 uppercase group-data-[collapsible=icon]:sr-only"
         >
             Workspace
         </SidebarGroupLabel>
@@ -30,7 +30,7 @@ const { isCurrentUrl } = useCurrentUrl();
                     as-child
                     :is-active="isCurrentUrl(item.href)"
                     :tooltip="item.title"
-                    class="h-12 rounded-2xl px-3 text-lg font-semibold text-white/92 hover:bg-white/9 hover:text-white data-[active=true]:bg-[#0b3b22] data-[active=true]:text-white [&>svg]:size-5"
+                    class="h-11 rounded-xl px-3 text-base font-semibold text-white/88 hover:bg-white/9 hover:text-white data-[active=true]:bg-[#0b3b22] data-[active=true]:text-white [&>svg]:size-5"
                 >
                     <Link :href="item.href">
                         <component :is="item.icon" />

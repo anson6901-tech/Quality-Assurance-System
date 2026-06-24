@@ -157,14 +157,20 @@ const removeCourse = (course: Course) => {
                     description="Course catalogue with manual entry, CSV import, and removal"
                 />
 
-                <Button type="button" @click="addCourseOpen = true">
+                <Button
+                    type="button"
+                    class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                    @click="addCourseOpen = true"
+                >
                     <Plus /> Add course
                 </Button>
             </div>
 
-            <div class="overflow-hidden rounded-lg border bg-white">
+            <div
+                class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
+            >
                 <div
-                    class="grid grid-cols-[1fr_1fr_120px_auto] gap-4 border-b bg-muted/50 px-4 py-3 text-sm font-medium"
+                    class="grid grid-cols-[1fr_1fr_120px_auto] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
                 >
                     <span>Course</span>
                     <span>Department</span>
@@ -213,7 +219,7 @@ const removeCourse = (course: Course) => {
 
         <div class="space-y-6">
             <form
-                class="space-y-4 rounded-lg border bg-white p-4"
+                class="space-y-4 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-6 shadow-sm ring-1 ring-[#007a2f]/10"
                 @submit.prevent="importCourses"
             >
                 <Heading
@@ -227,6 +233,7 @@ const removeCourse = (course: Course) => {
                     <Input
                         id="courses-file"
                         type="file"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
                         accept=".csv,text/csv"
                         required
                         @input="
@@ -245,7 +252,11 @@ const removeCourse = (course: Course) => {
                     <span class="font-medium">department_name</span>.
                 </p>
 
-                <Button type="submit" :disabled="importForm.processing">
+                <Button
+                    type="submit"
+                    class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                    :disabled="importForm.processing"
+                >
                     <Upload /> Import CSV
                 </Button>
             </form>
@@ -267,7 +278,7 @@ const removeCourse = (course: Course) => {
                     <select
                         id="department"
                         v-model="form.department_id"
-                        class="h-9 rounded-md border bg-background px-3 text-sm"
+                        class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
                         required
                     >
                         <option value="" disabled>Select department</option>
@@ -284,13 +295,23 @@ const removeCourse = (course: Course) => {
 
                 <div class="grid gap-2">
                     <Label for="code">Course code</Label>
-                    <Input id="code" v-model="form.code" required />
+                    <Input
+                        id="code"
+                        v-model="form.code"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                        required
+                    />
                     <InputError :message="form.errors.code" />
                 </div>
 
                 <div class="grid gap-2">
                     <Label for="title">Course title</Label>
-                    <Input id="title" v-model="form.title" required />
+                    <Input
+                        id="title"
+                        v-model="form.title"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                        required
+                    />
                     <InputError :message="form.errors.title" />
                 </div>
 
@@ -299,6 +320,7 @@ const removeCourse = (course: Course) => {
                     <Input
                         id="credit-hours"
                         v-model="form.credit_hours"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
                         type="number"
                         min="1"
                         max="12"
@@ -314,7 +336,11 @@ const removeCourse = (course: Course) => {
                     >
                         Cancel
                     </Button>
-                    <Button type="submit" :disabled="form.processing">
+                    <Button
+                        type="submit"
+                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                        :disabled="form.processing"
+                    >
                         Submit course
                     </Button>
                 </DialogFooter>
@@ -337,7 +363,7 @@ const removeCourse = (course: Course) => {
                     <select
                         id="edit-department"
                         v-model="editForm.department_id"
-                        class="h-9 rounded-md border bg-background px-3 text-sm"
+                        class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
                         required
                     >
                         <option
@@ -353,13 +379,23 @@ const removeCourse = (course: Course) => {
 
                 <div class="grid gap-2">
                     <Label for="edit-code">Course code</Label>
-                    <Input id="edit-code" v-model="editForm.code" required />
+                    <Input
+                        id="edit-code"
+                        v-model="editForm.code"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                        required
+                    />
                     <InputError :message="editForm.errors.code" />
                 </div>
 
                 <div class="grid gap-2">
                     <Label for="edit-title">Course title</Label>
-                    <Input id="edit-title" v-model="editForm.title" required />
+                    <Input
+                        id="edit-title"
+                        v-model="editForm.title"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                        required
+                    />
                     <InputError :message="editForm.errors.title" />
                 </div>
 
@@ -368,6 +404,7 @@ const removeCourse = (course: Course) => {
                     <Input
                         id="edit-credit-hours"
                         v-model="editForm.credit_hours"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
                         type="number"
                         min="1"
                         max="12"
@@ -383,7 +420,11 @@ const removeCourse = (course: Course) => {
                     >
                         Cancel
                     </Button>
-                    <Button type="submit" :disabled="editForm.processing">
+                    <Button
+                        type="submit"
+                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                        :disabled="editForm.processing"
+                    >
                         Save changes
                     </Button>
                 </DialogFooter>

@@ -2,6 +2,7 @@
 
 namespace App\Http\Responses;
 
+use App\Actions\Teams\CreateTeam;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\URL;
 use Laravel\Fortify\Contracts\RegisterResponse as RegisterResponseContract;
@@ -15,8 +16,8 @@ class RegisterResponse implements RegisterResponseContract
         $user = $request->user();
         $team = $user?->currentTeam ?? $user?->personalTeam();
 
-        if (! $team) {
-            abort(403);
+        if (! $team && $user) {
+            $team = app(CreateTeam::class)->handle($user, "{$user->name}'s Team", true);
         }
 
         URL::defaults(['current_team' => $team->slug]);

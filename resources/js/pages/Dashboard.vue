@@ -16,7 +16,7 @@ const page = usePage();
 
 const roleGreeting =
     page.props.qualityProfile?.role === 'qa_officer'
-        ? 'Director'
+        ? 'QA Officer'
         : (page.props.qualityProfile?.roleLabel ?? 'Colleague');
 
 defineOptions({
@@ -36,23 +36,25 @@ defineOptions({
 <template>
     <Head title="Dashboard" />
 
-    <div class="flex h-full flex-1 flex-col gap-10 bg-[#f4f7fb] px-10 py-10">
+    <div class="flex h-full flex-1 flex-col gap-8">
         <div
-            class="rounded-[34px] bg-gradient-to-r from-[#007a2f] to-[#00a64a] px-13 py-14 text-white"
+            class="rounded-2xl bg-gradient-to-r from-[#007a2f] to-[#00a64a] px-8 py-9 text-white shadow-sm ring-1 ring-[#007a2f]/10 lg:px-10"
         >
             <div
-                class="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between"
+                class="flex flex-col gap-7 xl:flex-row xl:items-end xl:justify-between"
             >
                 <div>
                     <div
-                        class="text-2xl tracking-[0.18em] text-white/75 uppercase"
+                        class="text-sm font-semibold tracking-[0.18em] text-white/75 uppercase"
                     >
                         Welcome back
                     </div>
-                    <h1 class="mt-4 text-[3.5rem] leading-tight font-extrabold">
+                    <h1
+                        class="mt-3 text-4xl leading-tight font-extrabold text-white lg:text-5xl"
+                    >
                         Good afternoon, {{ roleGreeting }}.
                     </h1>
-                    <p class="mt-5 text-2xl text-white/82">
+                    <p class="mt-4 max-w-4xl text-lg text-white/82">
                         7 reports awaiting your approval. 3 schools have not
                         submitted this week.
                     </p>
@@ -60,109 +62,118 @@ defineOptions({
 
                 <div class="flex flex-wrap gap-5">
                     <Button
+                        v-if="page.props.qualityProfile?.canViewApprovalQueue"
                         as-child
-                        class="h-14 rounded-[18px] bg-[#eef3f8] px-7 text-xl font-bold text-[#071126] hover:bg-white"
+                        class="h-11 rounded-lg bg-[#eef3f8] px-5 text-base font-bold text-[#071126] hover:bg-white"
                     >
-                        <Link href="/quality/reports">View queue</Link>
+                        <Link href="/quality/approvals">View queue</Link>
                     </Button>
                     <Button
-                        class="h-14 rounded-[18px] bg-white px-7 text-xl font-bold text-[#007a2f] hover:bg-[#eef3f8]"
+                        v-else-if="page.props.qualityProfile?.canUploadReports"
+                        as-child
+                        class="h-11 rounded-lg bg-[#eef3f8] px-5 text-base font-bold text-[#071126] hover:bg-white"
+                    >
+                        <Link href="/quality/reports">View reports</Link>
+                    </Button>
+                    <Button
+                        v-if="page.props.qualityProfile?.canApproveReports"
+                        class="h-11 rounded-lg bg-white px-5 text-base font-bold text-[#007a2f] hover:bg-[#eef3f8]"
                     >
                         Approve all
-                        <CheckCircle2 class="ml-3 size-6" />
+                        <CheckCircle2 class="ml-2 size-5" />
                     </Button>
                 </div>
             </div>
         </div>
 
-        <div class="grid gap-7 xl:grid-cols-4">
+        <div class="grid gap-5 xl:grid-cols-4">
             <div
-                class="rounded-[26px] border border-[#dbe1e8] bg-white p-8 shadow-[0_2px_8px_rgba(15,23,42,0.12)]"
+                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
             >
                 <div class="flex items-start justify-between">
                     <span
-                        class="flex size-16 items-center justify-center rounded-[18px] bg-[#e8f3ed] text-[#007a2f]"
+                        class="flex size-12 items-center justify-center rounded-lg bg-[#e8f3ed] text-[#007a2f]"
                     >
-                        <FileText class="size-8" />
+                        <FileText class="size-6" />
                     </span>
                     <span
-                        class="rounded-full border border-[#dbe1e8] px-4 py-1 text-lg font-bold text-[#071126]"
+                        class="rounded-full border border-[#dbe1e8] px-3 py-1 text-sm font-bold text-[#071126]"
                     >
                         <ArrowUpRight class="mr-1 inline size-4" /> +12.4%
                     </span>
                 </div>
-                <div class="mt-8 text-5xl font-extrabold text-[#071126]">
+                <div class="mt-7 text-4xl font-extrabold text-[#071126]">
                     1,284
                 </div>
-                <div class="mt-3 text-2xl text-[#5f6b7d]">Total Reports</div>
+                <div class="mt-2 text-base text-[#5f6b7d]">Total Reports</div>
             </div>
 
             <div
-                class="rounded-[26px] border border-[#dbe1e8] bg-white p-8 shadow-[0_2px_8px_rgba(15,23,42,0.12)]"
+                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
             >
                 <div class="flex items-start justify-between">
-                    <Check class="mt-4 size-8 text-[#25b977]" />
+                    <Check class="mt-3 size-6 text-[#25b977]" />
                     <span
-                        class="rounded-full border border-[#dbe1e8] px-4 py-1 text-lg font-bold text-[#071126]"
+                        class="rounded-full border border-[#dbe1e8] px-3 py-1 text-sm font-bold text-[#071126]"
                     >
                         <ArrowUpRight class="mr-1 inline size-4" /> +8.2%
                     </span>
                 </div>
-                <div class="mt-8 text-5xl font-extrabold text-[#071126]">
+                <div class="mt-7 text-4xl font-extrabold text-[#071126]">
                     1,041
                 </div>
-                <div class="mt-3 text-2xl text-[#5f6b7d]">Approved</div>
+                <div class="mt-2 text-base text-[#5f6b7d]">Approved</div>
             </div>
 
             <div
-                class="rounded-[26px] border border-[#dbe1e8] bg-white p-8 shadow-[0_2px_8px_rgba(15,23,42,0.12)]"
+                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
             >
                 <div class="flex items-start justify-between">
-                    <Clock3 class="mt-4 size-8 text-[#071126]" />
+                    <Clock3 class="mt-3 size-6 text-[#071126]" />
                     <span
-                        class="rounded-full border border-[#dbe1e8] px-4 py-1 text-lg font-bold text-[#071126]"
+                        class="rounded-full border border-[#dbe1e8] px-3 py-1 text-sm font-bold text-[#071126]"
                     >
                         <ArrowUpRight class="mr-1 inline size-4" /> -3.1%
                     </span>
                 </div>
-                <div class="mt-8 text-5xl font-extrabold text-[#071126]">
+                <div class="mt-7 text-4xl font-extrabold text-[#071126]">
                     187
                 </div>
-                <div class="mt-3 text-2xl text-[#5f6b7d]">Pending</div>
+                <div class="mt-2 text-base text-[#5f6b7d]">Pending</div>
             </div>
 
             <div
-                class="rounded-[26px] border border-[#dbe1e8] bg-white p-8 shadow-[0_2px_8px_rgba(15,23,42,0.12)]"
+                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
             >
                 <div class="flex items-start justify-between">
-                    <TrendingUp class="mt-4 size-8 text-[#071126]" />
+                    <TrendingUp class="mt-3 size-6 text-[#071126]" />
                     <span
-                        class="rounded-full border border-[#dbe1e8] px-4 py-1 text-lg font-bold text-[#071126]"
+                        class="rounded-full border border-[#dbe1e8] px-3 py-1 text-sm font-bold text-[#071126]"
                     >
                         <ArrowUpRight class="mr-1 inline size-4" /> -0.6d
                     </span>
                 </div>
-                <div class="mt-8 text-5xl font-extrabold text-[#071126]">
+                <div class="mt-7 text-4xl font-extrabold text-[#071126]">
                     2.4d
                 </div>
-                <div class="mt-3 text-2xl text-[#5f6b7d]">Avg. Turnaround</div>
+                <div class="mt-2 text-base text-[#5f6b7d]">Avg. Turnaround</div>
             </div>
         </div>
 
-        <div class="grid gap-7 xl:grid-cols-[2fr_1fr]">
+        <div class="grid gap-5 xl:grid-cols-[2fr_1fr]">
             <section
-                class="rounded-[26px] border border-[#dbe1e8] bg-white p-10 shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
+                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
             >
                 <div class="flex items-start justify-between">
                     <div>
-                        <h2 class="text-3xl font-extrabold text-[#071126]">
+                        <h2 class="text-2xl font-extrabold text-[#071126]">
                             Submissions vs Approvals
                         </h2>
-                        <p class="mt-2 text-2xl text-[#5f6b7d]">
+                        <p class="mt-1 text-base text-[#5f6b7d]">
                             Last 7 months
                         </p>
                     </div>
-                    <span class="text-xl font-bold text-[#071126]">
+                    <span class="text-sm font-bold text-[#071126]">
                         This year
                     </span>
                 </div>
@@ -182,12 +193,12 @@ defineOptions({
             </section>
 
             <section
-                class="rounded-[26px] border border-[#dbe1e8] bg-white p-10 shadow-[0_2px_8px_rgba(15,23,42,0.08)]"
+                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
             >
-                <h2 class="text-3xl font-extrabold text-[#071126]">
+                <h2 class="text-2xl font-extrabold text-[#071126]">
                     By School
                 </h2>
-                <p class="mt-2 text-2xl text-[#5f6b7d]">Approved reports</p>
+                <p class="mt-1 text-base text-[#5f6b7d]">Approved reports</p>
 
                 <div class="mt-12 space-y-8">
                     <div class="grid grid-cols-[140px_1fr] items-center gap-4">

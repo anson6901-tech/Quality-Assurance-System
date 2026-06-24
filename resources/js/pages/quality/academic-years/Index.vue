@@ -98,7 +98,10 @@ const update = () => {
     });
 };
 
-const setStatus = (academicYear: AcademicYear, status: 'active' | 'archived') => {
+const setStatus = (
+    academicYear: AcademicYear,
+    status: 'active' | 'archived',
+) => {
     router.patch(
         `/quality/academic-years/${academicYear.id}`,
         {
@@ -116,21 +119,29 @@ const setStatus = (academicYear: AcademicYear, status: 'active' | 'archived') =>
     <Head title="Academic Years" />
 
     <div class="space-y-6">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div
+            class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        >
             <Heading
                 variant="small"
                 title="Academic Years"
                 description="Create years for report uploads and archive old academic cycles"
             />
 
-            <Button type="button" @click="addOpen = true">
+            <Button
+                type="button"
+                class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                @click="addOpen = true"
+            >
                 <Plus /> Add academic year
             </Button>
         </div>
 
-        <div class="overflow-hidden rounded-lg border bg-white">
+        <div
+            class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
+        >
             <div
-                class="grid grid-cols-[1fr_1fr_140px_160px] gap-4 border-b bg-muted/50 px-4 py-3 text-sm font-medium"
+                class="grid grid-cols-[1fr_1fr_140px_160px] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
             >
                 <span>Academic year</span>
                 <span>Dates</span>
@@ -203,19 +214,35 @@ const setStatus = (academicYear: AcademicYear, status: 'active' | 'archived') =>
 
                 <div class="grid gap-2">
                     <Label for="name">Name</Label>
-                    <Input id="name" v-model="form.name" placeholder="2025/2026" required />
+                    <Input
+                        id="name"
+                        v-model="form.name"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                        placeholder="2025/2026"
+                        required
+                    />
                     <InputError :message="form.errors.name" />
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-2">
                     <div class="grid gap-2">
                         <Label for="starts-on">Starts on</Label>
-                        <Input id="starts-on" v-model="form.starts_on" type="date" />
+                        <Input
+                            id="starts-on"
+                            v-model="form.starts_on"
+                            class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                            type="date"
+                        />
                         <InputError :message="form.errors.starts_on" />
                     </div>
                     <div class="grid gap-2">
                         <Label for="ends-on">Ends on</Label>
-                        <Input id="ends-on" v-model="form.ends_on" type="date" />
+                        <Input
+                            id="ends-on"
+                            v-model="form.ends_on"
+                            class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                            type="date"
+                        />
                         <InputError :message="form.errors.ends_on" />
                     </div>
                 </div>
@@ -225,7 +252,7 @@ const setStatus = (academicYear: AcademicYear, status: 'active' | 'archived') =>
                     <select
                         id="status"
                         v-model="form.status"
-                        class="h-9 rounded-md border bg-background px-3 text-sm"
+                        class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
                     >
                         <option value="active">Active</option>
                         <option value="archived">Archived</option>
@@ -237,7 +264,11 @@ const setStatus = (academicYear: AcademicYear, status: 'active' | 'archived') =>
                     <Button type="button" variant="secondary" @click="closeAdd">
                         Cancel
                     </Button>
-                    <Button type="submit" :disabled="form.processing">
+                    <Button
+                        type="submit"
+                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                        :disabled="form.processing"
+                    >
                         Save year
                     </Button>
                 </DialogFooter>
@@ -251,25 +282,41 @@ const setStatus = (academicYear: AcademicYear, status: 'active' | 'archived') =>
                 <DialogHeader>
                     <DialogTitle>Edit academic year</DialogTitle>
                     <DialogDescription>
-                        Archive a year when it should no longer be used for new uploads.
+                        Archive a year when it should no longer be used for new
+                        uploads.
                     </DialogDescription>
                 </DialogHeader>
 
                 <div class="grid gap-2">
                     <Label for="edit-name">Name</Label>
-                    <Input id="edit-name" v-model="editForm.name" required />
+                    <Input
+                        id="edit-name"
+                        v-model="editForm.name"
+                        class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                        required
+                    />
                     <InputError :message="editForm.errors.name" />
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-2">
                     <div class="grid gap-2">
                         <Label for="edit-starts-on">Starts on</Label>
-                        <Input id="edit-starts-on" v-model="editForm.starts_on" type="date" />
+                        <Input
+                            id="edit-starts-on"
+                            v-model="editForm.starts_on"
+                            class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                            type="date"
+                        />
                         <InputError :message="editForm.errors.starts_on" />
                     </div>
                     <div class="grid gap-2">
                         <Label for="edit-ends-on">Ends on</Label>
-                        <Input id="edit-ends-on" v-model="editForm.ends_on" type="date" />
+                        <Input
+                            id="edit-ends-on"
+                            v-model="editForm.ends_on"
+                            class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                            type="date"
+                        />
                         <InputError :message="editForm.errors.ends_on" />
                     </div>
                 </div>
@@ -279,7 +326,7 @@ const setStatus = (academicYear: AcademicYear, status: 'active' | 'archived') =>
                     <select
                         id="edit-status"
                         v-model="editForm.status"
-                        class="h-9 rounded-md border bg-background px-3 text-sm"
+                        class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
                     >
                         <option value="active">Active</option>
                         <option value="archived">Archived</option>
@@ -288,10 +335,18 @@ const setStatus = (academicYear: AcademicYear, status: 'active' | 'archived') =>
                 </div>
 
                 <DialogFooter class="gap-2">
-                    <Button type="button" variant="secondary" @click="closeEdit">
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        @click="closeEdit"
+                    >
                         Cancel
                     </Button>
-                    <Button type="submit" :disabled="editForm.processing">
+                    <Button
+                        type="submit"
+                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                        :disabled="editForm.processing"
+                    >
                         Save changes
                     </Button>
                 </DialogFooter>
