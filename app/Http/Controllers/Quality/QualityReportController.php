@@ -9,6 +9,7 @@ use App\Models\Department;
 use App\Models\QualityReport;
 use App\Models\QualityRolePermission;
 use App\Models\School;
+use App\Models\Semester;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -159,6 +160,7 @@ class QualityReportController extends Controller
                 'integer',
                 Rule::exists('academic_years', 'id')->where('status', 'active'),
             ],
+            'semester_id' => ['nullable', 'integer', Rule::exists('semesters', 'id')],
             'summary' => ['nullable', 'string'],
             'lecturer_id' => ['required', 'integer', Rule::exists('users', 'id')],
             'course_ids' => ['required', 'array', 'min:1'],
@@ -171,17 +173,36 @@ class QualityReportController extends Controller
             ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
             ->firstOrFail();
 
-        if (! $lecturer->school_id || ! $lecturer->department_id) {
+        $semesterId = $validated['semester_id'] ?? Semester::query()
+            ->where('academic_year_id', $validated['academic_year_id'])
+            ->orderBy('sequence')
+            ->value('id');
+
+        abort_unless($semesterId && Semester::query()->whereKey($semesterId)->where('academic_year_id', $validated['academic_year_id'])->exists(), 422);
+
+        $courses = Course::query()
+            ->whereIn('id', $validated['course_ids'])
+            ->get(['id', 'department_id']);
+
+        abort_unless($courses->count() === count(array_unique($validated['course_ids'])), 422);
+
+        $departmentIds = $courses->pluck('department_id')->unique();
+
+        if ($departmentIds->count() !== 1) {
             throw ValidationException::withMessages([
-                'lecturer_id' => __('Select a lecturer with an assigned school and department.'),
+                'course_ids' => __('Select courses from one department for each report.'),
             ]);
         }
 
-        $courseIds = Course::query()
-            ->whereIn('id', $validated['course_ids'])
-            ->pluck('id');
+        if ($lecturer->assignedCourses()->whereIn('courses.id', $courses->pluck('id'))->count() !== $courses->count()) {
+            throw ValidationException::withMessages([
+                'lecturer_id' => __('Select a lecturer assigned to the selected course.'),
+            ]);
+        }
 
-        abort_unless($courseIds->count() === count(array_unique($validated['course_ids'])), 422);
+        $department = Department::query()
+            ->with('school:id')
+            ->findOrFail($departmentIds->first());
 
         $filePath = $request->file('report_file')?->store('quality-reports', 'public');
 
@@ -190,15 +211,16 @@ class QualityReportController extends Controller
             'category' => $validated['category'],
             'status' => 'submitted',
             'academic_year_id' => $validated['academic_year_id'],
+            'semester_id' => $semesterId,
             'summary' => $validated['summary'] ?? null,
-            'school_id' => $lecturer->school_id,
-            'department_id' => $lecturer->department_id,
+            'school_id' => $department->school_id,
+            'department_id' => $department->id,
             'lecturer_id' => $validated['lecturer_id'],
             'file_path' => $filePath,
             'uploaded_by' => $request->user()->id,
         ]);
 
-        $report->courses()->sync($courseIds);
+        $report->courses()->sync($courses->pluck('id'));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Quality report uploaded.')]);
 
@@ -227,7 +249,7 @@ class QualityReportController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Report approved and sent to print queue.')]);
 
-        return to_route('quality.reports.print-queue');
+        return $this->approvalRedirect($request, 'quality.reports.print-queue');
     }
 
     public function returnToOfficer(Request $request, QualityReport $report): RedirectResponse
@@ -239,7 +261,7 @@ class QualityReportController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Report pushed back to the QA officer.')]);
 
-        return to_route('quality.reports.approvals');
+        return $this->approvalRedirect($request, 'quality.reports.approvals');
     }
 
     public function unapprove(Request $request, QualityReport $report): RedirectResponse
@@ -251,7 +273,7 @@ class QualityReportController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Report unapproved and removed from print queue.')]);
 
-        return to_route('quality.reports.approvals');
+        return $this->approvalRedirect($request, 'quality.reports.approvals');
     }
 
     public function destroy(Request $request, QualityReport $report): RedirectResponse
@@ -268,7 +290,7 @@ class QualityReportController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Report deleted.')]);
 
-        return to_route('quality.reports.approvals');
+        return $this->approvalRedirect($request, 'quality.reports.approvals');
     }
 
     public function show(Request $request, QualityReport $report): Response
@@ -386,6 +408,13 @@ class QualityReportController extends Controller
         return $request->user()->canViewApprovalQueue();
     }
 
+    private function approvalRedirect(Request $request, string $fallback): RedirectResponse
+    {
+        return $request->boolean('from_course_assignments')
+            ? to_route('quality.course-assignments.index')
+            : to_route($fallback);
+    }
+
     private function canViewApprovalReport(Request $request, QualityReport $report): bool
     {
         return $this->canViewApprovalQueue($request)
@@ -419,6 +448,7 @@ class QualityReportController extends Controller
         $rules = [
             'lecturer_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
             'academic_year_id' => ['nullable', 'integer', Rule::exists('academic_years', 'id')],
+            'semester_id' => ['nullable', 'integer', Rule::exists('semesters', 'id')],
             'school_id' => ['nullable', 'integer', Rule::exists('schools', 'id')],
             'department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')],
         ];
@@ -438,6 +468,7 @@ class QualityReportController extends Controller
         $query
             ->when($filters['lecturer_id'] ?? null, fn ($query, $lecturerId) => $query->where('lecturer_id', $lecturerId))
             ->when($filters['academic_year_id'] ?? null, fn ($query, $academicYearId) => $query->where('academic_year_id', $academicYearId))
+            ->when($filters['semester_id'] ?? null, fn ($query, $semesterId) => $query->where('semester_id', $semesterId))
             ->when($filters['school_id'] ?? null, fn ($query, $schoolId) => $query->where(function ($query) use ($schoolId): void {
                 $query
                     ->whereHas('lecturer', fn ($query) => $query->where('school_id', $schoolId))
@@ -513,6 +544,16 @@ class QualityReportController extends Controller
                 ->map(fn (AcademicYear $academicYear) => [
                     'id' => $academicYear->id,
                     'name' => $academicYear->name,
+                ]),
+            'semesters' => Semester::query()
+                ->with('academicYear:id,name')
+                ->orderBy('academic_year_id')
+                ->orderBy('sequence')
+                ->get(['id', 'academic_year_id', 'name', 'sequence'])
+                ->map(fn (Semester $semester) => [
+                    'id' => $semester->id,
+                    'academicYearId' => $semester->academic_year_id,
+                    'name' => $semester->name,
                 ]),
             'schools' => School::query()
                 ->orderBy('name')

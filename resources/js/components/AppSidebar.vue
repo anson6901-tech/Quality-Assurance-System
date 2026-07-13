@@ -108,10 +108,25 @@ const administrationNavItems = computed<NavItem[]>(() => [
                   href: '/quality/academic-years',
                   icon: CalendarRange,
               },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canManageQualityStructure ||
+    page.props.qualityProfile?.canManageCourseAssignments
+        ? [
               {
                   title: 'Courses',
                   href: '/quality/courses',
                   icon: BookOpenCheck,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canManageQualityStructure ||
+    page.props.qualityProfile?.canManageCourseAssignments
+        ? [
+              {
+                  title: 'Course Assignments',
+                  href: '/quality/course-assignments',
+                  icon: Users,
               },
           ]
         : []),

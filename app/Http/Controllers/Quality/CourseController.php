@@ -47,6 +47,7 @@ class CourseController extends Controller
                 Rule::unique('courses', 'code')->where('department_id', $request->input('department_id')),
             ],
             'title' => ['required', 'string', 'max:255'],
+            'course_type' => ['required', 'string', Rule::in(['normal', 'module'])],
             'level' => ['nullable', 'string', 'max:50'],
             'credit_hours' => ['nullable', 'integer', 'min:1', 'max:12'],
         ]);
@@ -55,6 +56,7 @@ class CourseController extends Controller
             'department_id' => $validated['department_id'],
             'code' => $validated['code'],
             'title' => $validated['title'],
+            'course_type' => $validated['course_type'],
             'level' => $validated['level'] ?? null,
             'credit_hours' => $validated['credit_hours'] ?? null,
         ]);
@@ -144,6 +146,7 @@ class CourseController extends Controller
                     ->ignore($course->id),
             ],
             'title' => ['required', 'string', 'max:255'],
+            'course_type' => ['required', 'string', Rule::in(['normal', 'module'])],
             'credit_hours' => ['nullable', 'integer', 'min:1', 'max:12'],
         ]);
 
@@ -151,6 +154,7 @@ class CourseController extends Controller
             'department_id' => $validated['department_id'],
             'code' => $validated['code'],
             'title' => $validated['title'],
+            'course_type' => $validated['course_type'],
             'credit_hours' => $validated['credit_hours'] ?? null,
         ]);
 

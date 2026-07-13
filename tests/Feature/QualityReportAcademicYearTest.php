@@ -92,7 +92,7 @@ it('stores another report for the same lecturer and course in an active academic
     expect(QualityReport::where('lecturer_id', $lecturer->id)->count())->toBe(2);
 });
 
-it('stores a report with a catalog course that is not assigned to the lecturer', function () {
+it('does not store a report for a course that is not assigned to the lecturer', function () {
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
     $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
     $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
@@ -118,10 +118,9 @@ it('stores a report with a catalog course that is not assigned to the lecturer',
             'lecturer_id' => $lecturer->id,
             'course_ids' => [$course->id],
         ])
-        ->assertRedirect('/quality/reports');
+        ->assertInvalid('lecturer_id');
 
-    expect(QualityReport::where('title', 'Catalog course audit')->first()?->courses)
-        ->toHaveCount(1);
+    expect(QualityReport::where('title', 'Catalog course audit')->exists())->toBeFalse();
 });
 
 it('stores a submitted report with an uploaded PDF file', function () {
@@ -141,6 +140,8 @@ it('stores a submitted report with an uploaded PDF file', function () {
         'code' => 'MIDW 212',
         'title' => 'Maternal and Newborn Care',
     ]);
+
+    $lecturer->assignedCourses()->attach($course);
 
     $this->actingAs($qaDirector)
         ->post('/quality/reports', [
@@ -1195,10 +1196,7 @@ it('applies document role-based access to approved reports', function () {
 
     $this->actingAs($hod)
         ->get('/quality/print-queue')
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->has('reports', 1)
-            ->where('reports.0.title', 'Nursing approved report'));
+        ->assertForbidden();
 
     $this->actingAs($lecturer)
         ->get('/quality/print-queue')
@@ -1232,10 +1230,7 @@ it('applies document role-based access to approved reports', function () {
             'school_id' => $school->id,
             'department_id' => $department->id,
         ]))
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->has('reports', 1)
-            ->where('reports.0.title', 'Nursing approved report'));
+        ->assertForbidden();
 });
 
 it('allows scoped users to download only their approved print queue reports', function () {

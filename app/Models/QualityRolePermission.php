@@ -29,6 +29,7 @@ class QualityRolePermission extends Model
         return [
             'manage_users' => 'Create users and assign roles',
             'manage_structure' => 'Manage schools, departments, courses, and academic years',
+            'manage_course_assignments' => 'Assign lecturers to courses in their department',
             'view_reports' => 'View the report module',
             'upload_reports' => 'Upload lecturer evaluation reports',
             'view_approval_queue' => 'View reports waiting for approval',
@@ -52,7 +53,7 @@ class QualityRolePermission extends Model
             UniversityRole::QaDirector->value => ['manage_users', 'manage_structure', 'view_reports', 'upload_reports', 'view_approval_queue', 'approve_reports', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
             UniversityRole::IctAdmin->value => ['manage_users', 'manage_structure', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
             UniversityRole::Dean->value => ['view_school_reports', 'view_approval_queue', 'view_print_queue'],
-            UniversityRole::Hod->value => ['view_department_reports', 'view_approval_queue', 'view_print_queue'],
+            UniversityRole::Hod->value => ['manage_course_assignments'],
             UniversityRole::Lecturer->value => ['view_own_reports', 'view_print_queue'],
             UniversityRole::AppointmentCommittee->value => ['view_all_reports', 'view_print_queue'],
         ];
@@ -89,7 +90,7 @@ class QualityRolePermission extends Model
             [
                 'label' => 'Administration',
                 'description' => 'Manage users, academic structure, and audit logs',
-                'permissions' => ['manage_users', 'manage_structure', 'view_audit_logs'],
+                'permissions' => ['manage_users', 'manage_structure', 'manage_course_assignments', 'view_audit_logs'],
             ],
         ])
             ->map(fn (array $group): array => [

@@ -41,6 +41,12 @@ class QualityReport extends Model
         return $this->belongsTo(AcademicYear::class);
     }
 
+    /** @return BelongsTo<Semester, $this> */
+    public function semester(): BelongsTo
+    {
+        return $this->belongsTo(Semester::class);
+    }
+
     /**
      * @return BelongsTo<Department, $this>
      */

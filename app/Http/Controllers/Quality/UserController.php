@@ -128,8 +128,8 @@ class UserController extends Controller
 
         $role = $validated['university_role'];
         $permissions = QualityRolePermission::permissionsFor($role);
-        $schoolId = null;
-        $departmentId = null;
+        $schoolId = isset($validated['school_id']) ? (int) $validated['school_id'] : null;
+        $departmentId = isset($validated['department_id']) ? (int) $validated['department_id'] : null;
 
         if (in_array('view_school_reports', $permissions, true)) {
             $request->validate([
@@ -139,7 +139,7 @@ class UserController extends Controller
             $schoolId = (int) $validated['school_id'];
         }
 
-        if (array_intersect($permissions, ['view_department_reports', 'view_own_reports'])) {
+        if (array_intersect($permissions, ['view_department_reports', 'manage_course_assignments'])) {
             $request->validate([
                 'department_id' => ['required', 'integer', Rule::exists('departments', 'id')],
             ]);
@@ -147,6 +147,11 @@ class UserController extends Controller
             $department = Department::findOrFail($validated['department_id']);
             $schoolId = $department->school_id;
             $departmentId = $department->id;
+        }
+
+        if ($departmentId && ! array_intersect($permissions, ['view_department_reports', 'manage_course_assignments'])) {
+            $department = Department::findOrFail($departmentId);
+            $schoolId = $department->school_id;
         }
 
         return [$validated, $schoolId, $departmentId];

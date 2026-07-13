@@ -13,6 +13,16 @@ class AcademicYear extends Model
 {
     use HasFactory;
 
+    protected static function booted(): void
+    {
+        static::created(function (self $academicYear): void {
+            $academicYear->semesters()->createMany([
+                ['name' => 'Semester 1', 'sequence' => 1],
+                ['name' => 'Semester 2', 'sequence' => 2],
+            ]);
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -36,5 +46,11 @@ class AcademicYear extends Model
     public function qualityReports(): HasMany
     {
         return $this->hasMany(QualityReport::class);
+    }
+
+    /** @return HasMany<Semester, $this> */
+    public function semesters(): HasMany
+    {
+        return $this->hasMany(Semester::class)->orderBy('sequence');
     }
 }

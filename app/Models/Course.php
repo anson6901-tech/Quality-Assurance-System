@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
-#[Fillable(['department_id', 'code', 'title', 'level', 'credit_hours'])]
+#[Fillable(['department_id', 'code', 'title', 'course_type', 'level', 'credit_hours'])]
 class Course extends Model
 {
     use HasFactory;
@@ -21,6 +21,11 @@ class Course extends Model
         return $this->belongsTo(Department::class);
     }
 
+    public function program(): BelongsTo
+    {
+        return $this->belongsTo(Program::class);
+    }
+
     /**
      * @return BelongsToMany<User, $this>
      */
@@ -28,6 +33,7 @@ class Course extends Model
     {
         return $this->belongsToMany(User::class, 'course_lecturer', 'course_id', 'lecturer_id')
             ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
+            ->withPivot(['semester_id', 'student_count', 'allocated_hours'])
             ->withTimestamps();
     }
 

@@ -17,7 +17,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
-#[Fillable(['name', 'email', 'password', 'email_verified_at', 'current_team_id', 'university_role', 'school_id', 'department_id'])]
+#[Fillable(['name', 'email', 'staff_id', 'password', 'email_verified_at', 'current_team_id', 'university_role', 'school_id', 'department_id'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -86,6 +86,7 @@ class User extends Authenticatable
     public function assignedCourses(): BelongsToMany
     {
         return $this->belongsToMany(Course::class, 'course_lecturer', 'lecturer_id', 'course_id')
+            ->withPivot(['semester_id', 'student_count', 'allocated_hours'])
             ->withTimestamps();
     }
 
@@ -97,6 +98,11 @@ class User extends Authenticatable
     public function canManageQualityStructure(): bool
     {
         return QualityRolePermission::roleHas($this->university_role, 'manage_structure');
+    }
+
+    public function canManageCourseAssignments(): bool
+    {
+        return QualityRolePermission::roleHas($this->university_role, 'manage_course_assignments');
     }
 
     public function canManageUsers(): bool
@@ -156,6 +162,7 @@ class User extends Authenticatable
             'permissions' => $permissions,
             'canManageUsers' => $this->canManageUsers(),
             'canManageQualityStructure' => $this->canManageQualityStructure(),
+            'canManageCourseAssignments' => $this->canManageCourseAssignments(),
             'canViewReports' => $this->canViewQualityReports(),
             'canUploadReports' => $this->canUploadQualityReports(),
             'canViewApprovalQueue' => $this->canViewApprovalQueue(),

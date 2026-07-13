@@ -6,6 +6,7 @@ export type QualityProfile = {
     permissions: string[];
     canManageUsers: boolean;
     canManageQualityStructure: boolean;
+    canManageCourseAssignments: boolean;
     canViewReports: boolean;
     canUploadReports: boolean;
     canViewApprovalQueue: boolean;

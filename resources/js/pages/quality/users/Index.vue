@@ -88,7 +88,7 @@ const roleNeedsSchool = (role?: RoleOption) =>
 
 const roleNeedsDepartment = (role?: RoleOption) =>
     role?.permissions.some((permission) =>
-        ['view_department_reports', 'view_own_reports'].includes(permission),
+        ['view_department_reports', 'manage_course_assignments'].includes(permission),
     );
 
 const needsSchool = computed(() => roleNeedsSchool(selectedRole.value));

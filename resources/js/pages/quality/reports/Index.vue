@@ -34,6 +34,7 @@ type FilterOption = {
 type ReportFilters = {
     lecturer_id?: number | string | null;
     academic_year_id?: number | string | null;
+    semester_id?: number | string | null;
     school_id?: number | string | null;
     department_id?: number | string | null;
     status?: string | null;
@@ -50,6 +51,7 @@ const props = defineProps<{
     filterOptions?: {
         lecturers: FilterOption[];
         academicYears: FilterOption[];
+        semesters: Array<FilterOption & { academicYearId: number }>;
         schools: FilterOption[];
         departments: FilterOption[];
         statuses?: FilterOption[];
@@ -149,6 +151,16 @@ const filteredDepartments = computed(() => {
     );
 });
 
+const filteredSemesters = computed(() => {
+    const academicYearId = activeFilters.value.academic_year_id
+        ? Number(activeFilters.value.academic_year_id)
+        : null;
+
+    return academicYearId
+        ? (props.filterOptions?.semesters ?? []).filter((semester) => semester.academicYearId === academicYearId)
+        : (props.filterOptions?.semesters ?? []);
+});
+
 const updateFilter = (key: keyof ReportFilters, value: string) => {
     const nextFilters: ReportFilters = {
         ...activeFilters.value,
@@ -157,6 +169,10 @@ const updateFilter = (key: keyof ReportFilters, value: string) => {
 
     if (key === 'school_id') {
         nextFilters.department_id = undefined;
+    }
+
+    if (key === 'academic_year_id') {
+        nextFilters.semester_id = undefined;
     }
 
     router.get(filterRoute.value, nextFilters, {
@@ -300,6 +316,15 @@ defineOptions({
                 >
                     {{ academicYear.name }}
                 </option>
+            </select>
+
+            <select
+                :value="activeFilters.semester_id ?? ''"
+                class="h-10 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
+                @change="updateFilter('semester_id', ($event.target as HTMLSelectElement).value)"
+            >
+                <option value="">All semesters</option>
+                <option v-for="semester in filteredSemesters" :key="semester.id" :value="semester.id">{{ semester.name }}</option>
             </select>
 
             <select

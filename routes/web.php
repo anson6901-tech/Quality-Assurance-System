@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Quality\AcademicYearController;
 use App\Http\Controllers\Quality\AuditLogController;
+use App\Http\Controllers\Quality\CourseAssignmentController;
 use App\Http\Controllers\Quality\CourseController;
 use App\Http\Controllers\Quality\DepartmentController;
 use App\Http\Controllers\Quality\QualityReportController;
@@ -53,6 +54,8 @@ Route::middleware(['auth', 'verified'])
         Route::post('courses/import', [CourseController::class, 'import'])->name('courses.import');
         Route::patch('courses/{course}', [CourseController::class, 'update'])->name('courses.update');
         Route::delete('courses/{course}', [CourseController::class, 'destroy'])->name('courses.destroy');
+        Route::get('course-assignments', [CourseAssignmentController::class, 'index'])->name('course-assignments.index');
+        Route::put('course-assignments/{course}/lecturers', [CourseAssignmentController::class, 'sync'])->name('course-assignments.sync');
 
         Route::get('academic-years', [AcademicYearController::class, 'index'])->name('academic-years.index');
         Route::post('academic-years', [AcademicYearController::class, 'store'])->name('academic-years.store');

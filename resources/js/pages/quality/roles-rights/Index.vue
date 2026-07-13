@@ -80,6 +80,7 @@ const togglePermission = (
 ) => {
     if (checked) {
         selected[role] = Array.from(new Set([...selected[role], permission]));
+
         return;
     }
 
@@ -94,6 +95,7 @@ const toggleNewRolePermission = (
         form.permissions = Array.from(
             new Set([...form.permissions, permission]),
         );
+
         return;
     }
 
