@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
-import { Download, ExternalLink, Lock, Send } from 'lucide-vue-next';
+import { Head } from '@inertiajs/vue3';
+import { Download, ExternalLink, Lock } from 'lucide-vue-next';
 import { computed } from 'vue';
-import { push } from '@/actions/App/Http/Controllers/Quality/QualityReportController';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { QualityReport } from '@/types';
@@ -105,20 +104,6 @@ defineOptions({
                             Download
                         </a>
                     </Button>
-                    <Button
-                        v-if="canPushReport"
-                        as-child
-                        class="bg-[#007a2f] text-white hover:bg-[#006428]"
-                    >
-                        <Link
-                            :href="push.url(report.id)"
-                            method="post"
-                            as="button"
-                        >
-                            <Send class="h-4 w-4" />
-                            Push to Director
-                        </Link>
-                    </Button>
                 </div>
             </div>
 
@@ -166,7 +151,7 @@ defineOptions({
             class="flex items-center gap-3 rounded-xl border border-[#9fd8b8] bg-[#f3fbf6] px-5 py-4 text-sm text-[#436453] shadow-sm"
         >
             <Lock class="h-4 w-4 text-[#007a2f]" />
-            <span>This report has been pushed and is locked from editing.</span>
+            <span>This report has entered the review workflow and is locked from editing.</span>
         </div>
 
         <section

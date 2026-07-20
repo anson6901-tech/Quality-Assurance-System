@@ -9,7 +9,6 @@ import {
     Plus,
     Printer,
     RotateCcw,
-    Send,
     Trash2,
 } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
@@ -68,12 +67,12 @@ const pageTitle = computed(() => {
 
 const pageDescription = computed(() => {
     if (props.printQueue) {
-        return 'Approved lecturer reports ready for printing';
+        return 'Published lecturer reports available to the relevant stakeholders';
     }
 
     return props.approvalQueue
-        ? 'Reports pushed by QA officers and ready for approval'
-        : 'Track your reports from upload through approval and printing';
+        ? 'Reports submitted by QA officers and ready for review'
+        : 'Review and monitor lecturer reports through the quality workflow';
 });
 
 const emptyMessage = computed(() => {
@@ -82,7 +81,7 @@ const emptyMessage = computed(() => {
     }
 
     return props.approvalQueue
-        ? 'No reports are waiting for approval.'
+        ? 'No reports are waiting for review.'
         : 'No QA reports match the current filters.';
 });
 
@@ -216,14 +215,6 @@ defineOptions({
                 :description="pageDescription"
             />
 
-            <Button
-                v-if="canUploadReports && !approvalQueue && !printQueue"
-                as-child
-            >
-                <Link href="/quality/reports/create">
-                    <Plus /> Upload report
-                </Link>
-            </Button>
         </div>
 
         <div
@@ -437,29 +428,9 @@ defineOptions({
                 <div class="flex justify-end gap-2">
                     <Button
                         v-if="
-                            !approvalQueue &&
-                            !printQueue &&
-                            ['draft', 'submitted'].includes(report.status)
-                        "
-                        size="sm"
-                        class="bg-[#007a2f] text-white hover:bg-[#006428]"
-                        as-child
-                    >
-                        <Link
-                            :href="`/quality/reports/${report.id}/push`"
-                            method="post"
-                            as="button"
-                        >
-                            <Send class="h-4 w-4" />
-                            Push to Director
-                        </Link>
-                    </Button>
-
-                    <Button
-                        v-if="
                             approvalQueue &&
                             canApproveReports &&
-                            report.status === 'under_review'
+                            ['submitted', 'under_review'].includes(report.status)
                         "
                         size="sm"
                         class="bg-[#007a2f] hover:bg-[#006428]"
@@ -479,7 +450,7 @@ defineOptions({
                         v-if="
                             approvalQueue &&
                             canApproveReports &&
-                            report.status === 'under_review'
+                            ['submitted', 'under_review'].includes(report.status)
                         "
                         size="sm"
                         variant="destructive"
@@ -494,7 +465,7 @@ defineOptions({
                         v-if="
                             approvalQueue &&
                             canApproveReports &&
-                            report.status === 'under_review'
+                            ['submitted', 'under_review'].includes(report.status)
                         "
                         size="sm"
                         variant="outline"

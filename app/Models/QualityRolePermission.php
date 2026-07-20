@@ -51,6 +51,7 @@ class QualityRolePermission extends Model
         return [
             UniversityRole::QaOfficer->value => ['view_reports', 'upload_reports', 'view_approval_queue'],
             UniversityRole::QaDirector->value => ['manage_users', 'manage_structure', 'view_reports', 'upload_reports', 'view_approval_queue', 'approve_reports', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
+            UniversityRole::UploadOnly->value => ['view_reports', 'upload_reports'],
             UniversityRole::IctAdmin->value => ['manage_users', 'manage_structure', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
             UniversityRole::Dean->value => ['view_school_reports', 'view_approval_queue', 'view_print_queue'],
             UniversityRole::Hod->value => ['manage_course_assignments'],

@@ -13,6 +13,7 @@ import {
     Printer,
     Settings,
     ShieldCheck,
+    Upload,
     Users,
 } from 'lucide-vue-next';
 import { computed } from 'vue';
@@ -38,20 +39,37 @@ const dashboardUrl = computed(() =>
     page.props.currentTeam ? dashboard(page.props.currentTeam.slug).url : '/',
 );
 
+const showUploadReportItem = computed(() =>
+    Boolean(page.props.qualityProfile?.canUploadReports),
+);
+
+const showReportsItem = computed(() =>
+    Boolean(
+        page.props.qualityProfile?.canViewReports ||
+            page.props.qualityProfile?.canApproveReports,
+    ),
+);
+
 const mainNavItems = computed<NavItem[]>(() => [
     {
         title: 'Dashboard',
         href: dashboardUrl.value,
         icon: LayoutGrid,
     },
-    ...(page.props.qualityProfile?.canViewReports ||
-    page.props.qualityProfile?.canUploadReports
+    ...(showUploadReportItem.value
+        ? [
+              {
+                  title: 'Upload Reports',
+                  href: '/quality/reports/create',
+                  icon: Upload,
+              },
+          ]
+        : []),
+    ...(showReportsItem.value
         ? [
               {
                   title: 'Reports',
-                  href: page.props.qualityProfile?.canViewReports
-                      ? '/quality/reports'
-                      : '/quality/reports/create',
+                  href: '/quality/reports',
                   icon: ClipboardList,
               },
           ]
@@ -71,6 +89,17 @@ const mainNavItems = computed<NavItem[]>(() => [
                   title: 'Print Queue',
                   href: '/quality/print-queue',
                   icon: Printer,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canManageQualityStructure ||
+    page.props.qualityProfile?.canManageCourseAssignments ||
+    page.props.qualityProfile?.canUploadReports
+        ? [
+              {
+                  title: 'Course Assignments',
+                  href: '/quality/course-assignments',
+                  icon: Users,
               },
           ]
         : []),
@@ -117,16 +146,6 @@ const administrationNavItems = computed<NavItem[]>(() => [
                   title: 'Courses',
                   href: '/quality/courses',
                   icon: BookOpenCheck,
-              },
-          ]
-        : []),
-    ...(page.props.qualityProfile?.canManageQualityStructure ||
-    page.props.qualityProfile?.canManageCourseAssignments
-        ? [
-              {
-                  title: 'Course Assignments',
-                  href: '/quality/course-assignments',
-                  icon: Users,
               },
           ]
         : []),

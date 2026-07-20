@@ -1,31 +1,37 @@
 <script setup lang="ts">
 import { Head, useForm } from '@inertiajs/vue3';
-import { ChevronDown, X } from 'lucide-vue-next';
+import { Upload, X } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-    DropdownMenu,
-    DropdownMenuCheckboxItem,
-    DropdownMenuContent,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type {
-    AcademicYearOption,
-    CourseOption,
-    LecturerOption,
-    SchoolOption,
-} from '@/types';
+import type { AcademicYearOption, CourseOption } from '@/types';
+
+interface CourseWithLecturers extends CourseOption {
+    lecturers: Array<{ id: number; name: string; email: string }>;
+    department?: { id: number; name: string; schoolId: number };
+}
+
+interface Department {
+    id: number;
+    name: string;
+}
+
+interface Semester {
+    id: number;
+    name: string;
+    academic_year_id: number;
+}
 
 const props = defineProps<{
-    schools: SchoolOption[];
     academicYears: AcademicYearOption[];
-    lecturers: LecturerOption[];
-    courses: CourseOption[];
+    semesters: Semester[];
+    departments: Department[];
+    courses: CourseWithLecturers[];
+    defaultAcademicYearId?: number;
+    defaultSemesterId?: number;
 }>();
 
 defineOptions({
@@ -43,141 +49,120 @@ defineOptions({
     },
 });
 
-const form = useForm({
+const selectedAcademicYearId = ref<number | string>(props.defaultAcademicYearId || '');
+const selectedSemesterId = ref<number | string>(props.defaultSemesterId || '');
+const selectedDepartmentId = ref<number | string>('');
+const searchQuery = ref('');
+const selectedLecturerId = ref<number | string>('');
+const uploadingCourseId = ref<number | null>(null);
+
+const uploadForm = useForm({
     title: '',
     category: 'Academic Quality',
-    academic_year_id: props.academicYears[0]
-        ? String(props.academicYears[0].id)
-        : '',
-    summary: '',
-    lecturer_id: '',
+    academic_year_id: selectedAcademicYearId.value,
     course_ids: [] as number[],
     report_file: null as File | null,
+    summary: '',
 });
 
-const courseSearch = ref('');
-const submitErrorSummary = ref<string | null>(null);
-
-const selectedLecturer = computed(
-    () =>
-        props.lecturers.find(
-            (lecturer) => String(lecturer.id) === form.lecturer_id,
-        ) ?? null,
+const semestersForAcademicYear = computed(() =>
+    props.semesters.filter(
+        (s) =>
+            !selectedAcademicYearId.value ||
+            s.academic_year_id === Number(selectedAcademicYearId.value),
+    ),
 );
 
-const selectedCourses = computed(() =>
-    props.courses.filter((course) => form.course_ids.includes(course.id)),
+const filteredCourses = computed(() =>
+    props.courses.filter((course) => {
+        if (
+            selectedDepartmentId.value &&
+            course.department?.id !== Number(selectedDepartmentId.value)
+        ) {
+            return false;
+        }
+        if (
+            searchQuery.value &&
+            !`${course.code} ${course.title}`
+                .toLowerCase()
+                .includes(searchQuery.value.toLowerCase())
+        ) {
+            return false;
+        }
+        if (
+            selectedLecturerId.value &&
+            !course.lecturers.some((l) => l.id === Number(selectedLecturerId.value))
+        ) {
+            return false;
+        }
+        return true;
+    }),
 );
 
-const formErrorMessages = computed(() =>
-    Object.values(form.errors).filter(Boolean),
-);
-
-const selectedCourseLabel = computed(() => {
-    if (selectedCourses.value.length === 0) {
-        return 'Select courses';
-    }
-
-    if (selectedCourses.value.length === 1) {
-        const [course] = selectedCourses.value;
-
-        return `${course.code} - ${course.title}`;
-    }
-
-    return `${selectedCourses.value.length} courses selected`;
+const allLecturers = computed(() => {
+    const lecturers = new Map<number, { id: number; name: string }>();
+    props.courses.forEach((course) => {
+        course.lecturers.forEach((lecturer) => {
+            if (!lecturers.has(lecturer.id)) {
+                lecturers.set(lecturer.id, {
+                    id: lecturer.id,
+                    name: lecturer.name,
+                });
+            }
+        });
+    });
+    return Array.from(lecturers.values()).sort((a, b) =>
+        a.name.localeCompare(b.name),
+    );
 });
 
-const filteredCourses = computed(() => {
-    const query = courseSearch.value.trim().toLowerCase();
-
-    if (!query) {
-        return props.courses.slice(0, 8);
-    }
-
-    return props.courses
-        .filter((course) =>
-            `${course.code} ${course.title}`.toLowerCase().includes(query),
-        )
-        .slice(0, 8);
-});
-
-const toggleCourse = (courseId: number) => {
-    form.course_ids = form.course_ids.includes(courseId)
-        ? form.course_ids.filter((id) => id !== courseId)
-        : [...form.course_ids, courseId];
+const startUpload = (courseId: number) => {
+    uploadingCourseId.value = courseId;
+    uploadForm.course_ids = [courseId];
 };
 
-const removeCourse = (courseId: number) => {
-    form.course_ids = form.course_ids.filter((id) => id !== courseId);
-};
+const submitUpload = () => {
+    const course = filteredCourses.value.find((c) => c.id === uploadingCourseId.value);
+    uploadForm.title =
+        uploadForm.title || `Report for ${course?.code || 'Course'}`;
+    uploadForm.academic_year_id = String(selectedAcademicYearId.value);
 
-const submit = () => {
-    submitErrorSummary.value = null;
-
-    form.post('/quality/reports', {
+    uploadForm.post('/quality/reports', {
         forceFormData: true,
-        onError: () => {
-            submitErrorSummary.value =
-                'The report was not uploaded. Check the highlighted fields and try again.';
+        onSuccess: () => {
+            uploadingCourseId.value = null;
+            uploadForm.reset();
         },
     });
 };
+
+const closeUploadModal = () => {
+    uploadingCourseId.value = null;
+    uploadForm.reset();
+};
+
+const selectedCourse = computed(() =>
+    filteredCourses.value.find((c) => c.id === uploadingCourseId.value),
+);
 </script>
 
 <template>
-    <Head title="Upload QA Report" />
+    <Head title="Upload Report" />
 
     <div class="max-w-5xl space-y-6">
         <Heading
             variant="small"
-            title="Upload lecturer course report"
-            description="Select the lecturer, then search for one or more courses by code or title"
+            title="Upload report"
+            description="Select the assigned courses and upload the lecturer report for review"
         />
 
         <form class="space-y-6" @submit.prevent="submit">
-            <div class="grid gap-2">
-                <Label for="lecturer">Lecturer</Label>
-                <select
-                    id="lecturer"
-                    v-model="form.lecturer_id"
-                    class="h-11 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
-                    required
-                >
-                    <option value="" disabled>Select lecturer</option>
-                    <option
-                        v-for="lecturer in lecturers"
-                        :key="lecturer.id"
-                        :value="lecturer.id"
-                    >
-                        {{ lecturer.name }} - {{ lecturer.department?.name }}
-                    </option>
-                </select>
-                <InputError :message="form.errors.lecturer_id" />
-            </div>
-
-            <div
-                v-if="selectedLecturer"
-                class="grid gap-4 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-6 shadow-sm ring-1 ring-[#007a2f]/10 md:grid-cols-3"
-            >
-                <div>
-                    <div class="text-sm text-muted-foreground">Lecturer</div>
-                    <div class="font-medium">{{ selectedLecturer.name }}</div>
-                    <div class="text-sm text-muted-foreground">
-                        {{ selectedLecturer.email }}
-                    </div>
-                </div>
-                <div>
-                    <div class="text-sm text-muted-foreground">School</div>
-                    <div class="font-medium">
-                        {{ selectedLecturer.school?.name }}
-                    </div>
-                </div>
-                <div>
-                    <div class="text-sm text-muted-foreground">Department</div>
-                    <div class="font-medium">
-                        {{ selectedLecturer.department?.name }}
-                    </div>
-                </div>
+            <div class="rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-6 shadow-sm ring-1 ring-[#007a2f]/10">
+                <div class="font-medium">Assigned course lecturers</div>
+                <p class="text-sm text-muted-foreground">
+                    Only courses that already have assigned lecturers are available for report upload.
+                    If a selected course has more than one assigned lecturer, upload the report separately for each lecturer.
+                </p>
             </div>
 
             <div class="grid gap-6 md:grid-cols-2">
@@ -287,23 +272,46 @@ const submit = () => {
                     </DropdownMenuContent>
                 </DropdownMenu>
 
-                <div v-if="selectedCourses.length" class="flex flex-wrap gap-2">
-                    <Badge
-                        v-for="course in selectedCourses"
-                        :key="course.id"
-                        variant="secondary"
-                        class="gap-1 pr-1"
-                    >
-                        {{ course.code }} - {{ course.title }}
-                        <button
-                            type="button"
-                            class="rounded-sm p-0.5 hover:bg-black/10"
-                            :aria-label="`Remove ${course.code}`"
-                            @click="removeCourse(course.id)"
+                <div v-if="selectedCourses.length" class="space-y-4">
+                    <div class="flex flex-wrap gap-2">
+                        <Badge
+                            v-for="course in selectedCourses"
+                            :key="course.id"
+                            variant="secondary"
+                            class="gap-1 pr-1"
                         >
-                            <X class="h-3 w-3" />
-                        </button>
-                    </Badge>
+                            {{ course.code }} - {{ course.title }}
+                            <button
+                                type="button"
+                                class="rounded-sm p-0.5 hover:bg-black/10"
+                                :aria-label="`Remove ${course.code}`"
+                                @click="removeCourse(course.id)"
+                            >
+                                <X class="h-3 w-3" />
+                            </button>
+                        </Badge>
+                    </div>
+
+                    <div
+                        v-if="selectedCoursesWithMultipleLecturers.length"
+                        class="rounded-xl border border-orange-300 bg-orange-50 p-4 text-sm text-orange-800"
+                    >
+                        <div class="font-medium">Multiple lecturers assigned</div>
+                        <p>
+                            The following courses have more than one lecturer assigned. Upload reports separately for each lecturer to avoid ambiguity.
+                        </p>
+                        <ul class="list-disc pl-5">
+                            <li
+                                v-for="course in selectedCoursesWithMultipleLecturers"
+                                :key="course.id"
+                            >
+                                <span class="font-medium">{{ course.code }} - {{ course.title }}</span>
+                                <span>
+                                    ({{ course.lecturerCount }} lecturers)
+                                </span>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
                 <InputError :message="form.errors.course_ids" />
             </div>

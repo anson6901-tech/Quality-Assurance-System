@@ -7,6 +7,7 @@ use App\Models\Department;
 use App\Models\QualityReport;
 use App\Models\QualityRolePermission;
 use App\Models\School;
+use App\Models\Semester;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -26,17 +27,92 @@ it('shows active academic years on the report upload page', function () {
             ->where('academicYears.0.name', '2025/2026'));
 });
 
-it('shows courses from the course catalog on the report upload page', function () {
+it('does not show the upload action on the reports list for officers', function () {
+    $user = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
+
+    $this->actingAs($user)
+        ->get('/quality/reports')
+        ->assertOk()
+        ->assertDontSee('Upload report');
+});
+
+it('shows both upload and reports sidebar items for roles that can upload and review', function () {
     $user = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+
+    $this->actingAs($user)
+        ->get('/quality/reports')
+        ->assertOk()
+        ->assertSee('Upload Reports')
+        ->assertSee('Reports');
+});
+
+it('allows an upload-only role to view course assignments for report planning', function () {
+    $user = User::factory()->create(['university_role' => UniversityRole::UploadOnly]);
+    AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+
+    $this->actingAs($user)
+        ->get('/quality/course-assignments')
+        ->assertOk();
+});
+
+it('allows an upload-only role to upload reports for courses with assigned lecturers', function () {
+    $user = User::factory()->create(['university_role' => UniversityRole::UploadOnly]);
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
     $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
-
-    AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
-    Course::create([
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+    $course = Course::create([
         'department_id' => $department->id,
         'code' => 'NURS 401',
         'title' => 'Clinical Nursing Practice',
     ]);
+
+    $lecturer->assignedCourses()->attach($course);
+
+    $this->actingAs($user)
+        ->get('/quality/reports/create')
+        ->assertOk();
+
+    $this->actingAs($user)
+        ->post('/quality/reports', [
+            'title' => 'Upload-only report',
+            'category' => 'Academic Quality',
+            'academic_year_id' => $academicYear->id,
+            'course_ids' => [$course->id],
+        ])
+        ->assertRedirect('/quality/reports');
+
+    expect(QualityReport::where('title', 'Upload-only report')->exists())->toBeTrue();
+});
+
+it('shows only courses with assigned lecturers on the report upload page', function () {
+    $user = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $courseWithLecturer = Course::create([
+        'department_id' => $department->id,
+        'code' => 'NURS 401',
+        'title' => 'Clinical Nursing Practice',
+    ]);
+    $courseWithoutLecturer = Course::create([
+        'department_id' => $department->id,
+        'code' => 'NURS 402',
+        'title' => 'Nursing Leadership',
+    ]);
+
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+
+    $lecturer->assignedCourses()->attach($courseWithLecturer);
 
     $this->actingAs($user)
         ->get('/quality/reports/create')
@@ -82,9 +158,6 @@ it('stores another report for the same lecturer and course in an active academic
             'title' => 'Second audit',
             'category' => 'Academic Quality',
             'academic_year_id' => $academicYear->id,
-            'school_id' => $school->id,
-            'department_id' => $department->id,
-            'lecturer_id' => $lecturer->id,
             'course_ids' => [$course->id],
         ])
         ->assertRedirect('/quality/reports');
@@ -113,12 +186,9 @@ it('does not store a report for a course that is not assigned to the lecturer', 
             'title' => 'Catalog course audit',
             'category' => 'Academic Quality',
             'academic_year_id' => $academicYear->id,
-            'school_id' => $school->id,
-            'department_id' => $department->id,
-            'lecturer_id' => $lecturer->id,
             'course_ids' => [$course->id],
         ])
-        ->assertInvalid('lecturer_id');
+        ->assertInvalid('course_ids');
 
     expect(QualityReport::where('title', 'Catalog course audit')->exists())->toBeFalse();
 });
@@ -148,7 +218,6 @@ it('stores a submitted report with an uploaded PDF file', function () {
             'title' => 'Uploaded PDF report',
             'category' => 'Academic Quality',
             'academic_year_id' => $academicYear->id,
-            'lecturer_id' => $lecturer->id,
             'course_ids' => [$course->id],
             'summary' => 'Reviewed in the system.',
             'report_file' => UploadedFile::fake()->createWithContent(
@@ -165,6 +234,43 @@ it('stores a submitted report with an uploaded PDF file', function () {
         ->and($report?->file_path)->not->toBeNull();
 
     Storage::disk('public')->assertExists($report->file_path);
+});
+
+it('sends uploaded reports directly into the review queue', function () {
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $qaOfficer = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
+    $approver = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+    $course = Course::create([
+        'department_id' => $department->id,
+        'code' => 'MIDW 213',
+        'title' => 'Community Health Nursing',
+    ]);
+
+    $lecturer->assignedCourses()->attach($course);
+
+    $this->actingAs($qaOfficer)
+        ->post('/quality/reports', [
+            'title' => 'Awaiting review',
+            'category' => 'Academic Quality',
+            'academic_year_id' => $academicYear->id,
+            'course_ids' => [$course->id],
+        ])
+        ->assertRedirect('/quality/reports');
+
+    $this->actingAs($approver)
+        ->get('/quality/approvals')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('quality/reports/Index')
+            ->has('reports', 1)
+            ->where('reports.0.title', 'Awaiting review'));
 });
 
 it('does not allow uploads into archived academic years', function () {
@@ -190,9 +296,6 @@ it('does not allow uploads into archived academic years', function () {
             'title' => 'Archived year audit',
             'category' => 'Academic Quality',
             'academic_year_id' => $academicYear->id,
-            'school_id' => $school->id,
-            'department_id' => $department->id,
-            'lecturer_id' => $lecturer->id,
             'course_ids' => [$course->id],
         ])
         ->assertInvalid('academic_year_id');
@@ -222,9 +325,6 @@ it('does not allow reports to be uploaded directly into approval', function () {
             'category' => 'Academic Quality',
             'status' => 'under_review',
             'academic_year_id' => $academicYear->id,
-            'school_id' => $school->id,
-            'department_id' => $department->id,
-            'lecturer_id' => $lecturer->id,
             'course_ids' => [$course->id],
         ])
         ->assertRedirect('/quality/reports');
@@ -321,9 +421,10 @@ it('shows pushed reports on the approvals page', function () {
         ->assertInertia(fn (Assert $page) => $page
             ->component('quality/reports/Index')
             ->where('approvalQueue', true)
-            ->has('reports', 2)
+            ->has('reports', 3)
             ->where('reports.0.title', 'Waiting approval')
             ->where('reports.1.title', 'Already approved')
+            ->where('reports.2.title', 'Still being prepared')
             ->where('reports.0.isLocked', true));
 });
 
@@ -427,7 +528,7 @@ it('filters the reports workspace by workflow location', function () {
             ->where('filters.status', 'under_review')
             ->has('reports', 1)
             ->where('reports.0.title', 'At approval')
-            ->where('reports.0.location', 'Approval'));
+            ->where('reports.0.location', 'Review Queue'));
 });
 
 it('shows uploaded reports across workflow locations in the reports workspace', function () {
@@ -471,9 +572,9 @@ it('shows uploaded reports across workflow locations in the reports workspace', 
             ->where('approvalQueue', false)
             ->has('reports', 2)
             ->where('reports.0.title', 'Waiting approval')
-            ->where('reports.0.location', 'Approval')
+            ->where('reports.0.location', 'Review Queue')
             ->where('reports.1.title', 'Still in reports')
-            ->where('reports.1.location', 'Report Module')
+            ->where('reports.1.location', 'Review Queue')
             ->has('filterOptions.statuses', 4));
 });
 
@@ -904,7 +1005,7 @@ it('pushes reports back to the QA officer before approval', function () {
         ->assertInertia(fn (Assert $page) => $page
             ->has('reports', 1)
             ->where('reports.0.title', 'Needs corrections')
-            ->where('reports.0.location', 'Report Module'));
+            ->where('reports.0.location', 'Review Queue'));
 });
 
 it('does not push back approved reports or allow view-only approvers to push back', function () {
@@ -1133,7 +1234,7 @@ it('filters the print queue by lecturer academic year school and department', fu
             ->has('filterOptions.lecturers', 2)
             ->has('reports', 1)
             ->where('reports.0.title', 'Filtered print report')
-            ->where('reports.0.location', 'Print Queue'));
+            ->where('reports.0.location', 'Published'));
 });
 
 it('applies document role-based access to approved reports', function () {

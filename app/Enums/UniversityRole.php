@@ -6,6 +6,7 @@ enum UniversityRole: string
 {
     case QaOfficer = 'qa_officer';
     case QaDirector = 'qa_director';
+    case UploadOnly = 'upload_only';
     case IctAdmin = 'ict_admin';
     case Dean = 'dean';
     case Hod = 'hod';
@@ -17,6 +18,7 @@ enum UniversityRole: string
         return match ($this) {
             self::QaOfficer => 'QA Officer',
             self::QaDirector => 'QA Director',
+            self::UploadOnly => 'Upload Only',
             self::IctAdmin => 'ICT/System Administrator',
             self::Dean => 'Dean',
             self::Hod => 'Head of Department',
@@ -32,7 +34,7 @@ enum UniversityRole: string
 
     public function canUploadReports(): bool
     {
-        return in_array($this, [self::QaOfficer, self::QaDirector], true);
+        return in_array($this, [self::QaOfficer, self::QaDirector, self::UploadOnly], true);
     }
 
     /**
@@ -56,6 +58,7 @@ enum UniversityRole: string
             [
                 self::QaOfficer,
                 self::QaDirector,
+                self::UploadOnly,
                 self::IctAdmin,
                 self::Dean,
                 self::Hod,

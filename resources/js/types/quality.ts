@@ -60,6 +60,8 @@ export type CourseOption = {
     level?: string | null;
     creditHours?: number | null;
     department?: { id: number; name: string } | null;
+    lecturerCount?: number;
+    lecturers?: { id: number; name: string; email: string }[];
 };
 
 export type LecturerOption = {

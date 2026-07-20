@@ -2,6 +2,26 @@
 
 This is a Laravel, Inertia, and Vue application for managing university quality assurance work. It covers user and role management, academic structure setup, report upload and approval, print queue access, audit logging, and personal account settings.
 
+## Lecture Evaluation Workflow
+
+The Quality Assurance Lecture Evaluation System is organized around the institution's academic structure. The process begins with the creation of an Academic Year, with each academic year consisting of one or more Semesters.
+
+At the beginning of every semester, the Head of Department (HOD) assigns courses to lecturers within the department. Once the course assignments are completed, the assigned courses and their respective lecturers become available to the Quality Assurance (QA) Officers, who are responsible for conducting lecture evaluations.
+
+After completing the evaluation, the QA Officer uploads an evaluation report for each lecturer. Every uploaded report enters a structured approval workflow within the Quality Assurance Directorate.
+
+The first stage of the workflow is the QA Supervisor, who reviews each report to ensure that it is complete, accurate, and complies with the institution's quality assurance standards. If corrections are required, the Supervisor returns the report to the QA Officer with comments explaining the necessary revisions. Once the report meets the required standards, the Supervisor forwards it to the Director of Quality Assurance.
+
+The Director of Quality Assurance performs the final review and approval of the report. If additional corrections are required, the Director returns the report to the QA Officer with the appropriate comments for revision. Once the Director is satisfied with the report, it is published, making it officially available within the system.
+
+After publication, access to the report is controlled according to user roles:
+
+- The Dean of the School can view published evaluation reports for all departments within the school.
+- Each Lecturer can access only the published evaluation reports associated with their own courses through their personal portal.
+- Lecturers can also download their published evaluation reports for reference and professional development.
+
+This workflow establishes a clear and accountable approval process in which course assignments are managed by the Head of Department, report preparation is performed by QA Officers, quality verification is carried out by the QA Supervisor, final approval and publication are the responsibility of the Director of Quality Assurance, and published reports are made available to the relevant stakeholders based on their access privileges.
+
 ## Technology Stack
 
 - Backend: Laravel 13, PHP 8.3+

@@ -19,7 +19,7 @@ class CourseAssignmentController extends Controller
 {
     public function index(Request $request): Response
     {
-        abort_unless($this->canManageAssignments($request->user()), 403);
+        abort_unless($this->canViewAssignments($request->user()), 403);
 
         $canManageStructure = $request->user()->canManageQualityStructure();
         $canViewApprovals = $request->user()->canViewApprovalQueue();
@@ -41,7 +41,7 @@ class CourseAssignmentController extends Controller
                         ->with(['lecturer:id,name,email', 'academicYear:id,name'])
                         ->latest()] : []),
                 ])
-                ->when(! $canManageStructure, fn ($query) => $query->where('department_id', $request->user()->department_id))
+                ->when(! $canManageStructure && ! $request->user()->canUploadQualityReports(), fn ($query) => $query->where('department_id', $request->user()->department_id))
                 ->join('departments', 'departments.id', '=', 'courses.department_id')
                 ->join('schools', 'schools.id', '=', 'departments.school_id')
                 ->orderBy('schools.name')
@@ -165,5 +165,10 @@ class CourseAssignmentController extends Controller
     private function canManageAssignments(User $user): bool
     {
         return $user->canManageQualityStructure() || $user->canManageCourseAssignments();
+    }
+
+    private function canViewAssignments(User $user): bool
+    {
+        return $this->canManageAssignments($user) || $user->canUploadQualityReports();
     }
 }
