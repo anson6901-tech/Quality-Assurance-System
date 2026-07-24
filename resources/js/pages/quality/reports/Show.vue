@@ -19,9 +19,20 @@ const pdfReaderUrl = computed(() =>
 
 const canOpenForPrinting = computed(() => props.report.status === 'approved');
 
+const actionLabel = (action: string) =>
+    ({
+        uploaded: 'Draft uploaded',
+        submitted_to_supervisor: 'Pushed to QA Supervisor',
+        forwarded_to_director: 'Forwarded to QA Director',
+        returned_to_officer: 'Returned to QA Officer',
+        returned_to_supervisor: 'Returned to QA Supervisor',
+        published: 'Published',
+        deleted: 'Deleted',
+    })[action] ?? action.replaceAll('_', ' ');
+
 const reportMeta = computed(
     () =>
-        `${props.report.category} - ${props.report.academicYear?.name ?? 'No academic year'} - ${props.report.createdAt}`,
+        `${props.report.category} - ${props.report.academicYear?.name ?? 'No academic year'}${props.report.semester ? `, ${props.report.semester.name}` : ''} - ${props.report.createdAt}`,
 );
 
 defineOptions({
@@ -114,6 +125,9 @@ defineOptions({
                     </div>
                     <div class="mt-2 font-semibold text-[#062b19]">
                         {{ report.academicYear?.name ?? 'Not set' }}
+                        <span v-if="report.semester">
+                            · {{ report.semester.name }}
+                        </span>
                     </div>
                 </div>
                 <div class="rounded-xl border border-[#c8ead6] bg-white p-5">
@@ -184,6 +198,32 @@ defineOptions({
                 >
                     {{ report.summary || 'No summary was provided.' }}
                 </p>
+            </div>
+        </section>
+
+        <section
+            v-if="report.reviews.length"
+            class="space-y-4 border-t pt-6"
+        >
+            <h2 class="text-base font-semibold">Review history</h2>
+            <div class="divide-y border">
+                <div
+                    v-for="review in report.reviews"
+                    :key="review.id"
+                    class="grid gap-2 p-4 md:grid-cols-[220px_1fr]"
+                >
+                    <div>
+                        <div class="text-sm font-medium">
+                            {{ actionLabel(review.action) }}
+                        </div>
+                        <div class="text-xs text-muted-foreground">
+                            {{ review.actor }} · {{ review.createdAt }}
+                        </div>
+                    </div>
+                    <p class="text-sm whitespace-pre-wrap text-muted-foreground">
+                        {{ review.note || 'No note was added.' }}
+                    </p>
+                </div>
             </div>
         </section>
 

@@ -131,6 +131,7 @@ class QualityDemoSeeder extends Seeder
 
         $users = [
             'director' => $this->user('Test User', 'test@example.com', UniversityRole::QaDirector),
+            'supervisor' => $this->user('QA Supervisor', 'qa.supervisor@qa.test', UniversityRole::QaSupervisor),
             'officer' => $this->user('QA Officer', 'qa.officer@qa.test', UniversityRole::QaOfficer),
             'admin' => $this->user('ICT Administrator', 'ict.admin@qa.test', UniversityRole::IctAdmin),
             'medicineDean' => $this->user('Dean Medicine', 'dean.medicine@qa.test', UniversityRole::Dean, $medicine),

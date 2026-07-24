@@ -5,6 +5,7 @@ namespace App\Enums;
 enum UniversityRole: string
 {
     case QaOfficer = 'qa_officer';
+    case QaSupervisor = 'qa_supervisor';
     case QaDirector = 'qa_director';
     case UploadOnly = 'upload_only';
     case IctAdmin = 'ict_admin';
@@ -17,6 +18,7 @@ enum UniversityRole: string
     {
         return match ($this) {
             self::QaOfficer => 'QA Officer',
+            self::QaSupervisor => 'QA Supervisor',
             self::QaDirector => 'QA Director',
             self::UploadOnly => 'Upload Only',
             self::IctAdmin => 'ICT/System Administrator',
@@ -57,6 +59,7 @@ enum UniversityRole: string
             fn (self $role) => ['value' => $role->value, 'label' => $role->label()],
             [
                 self::QaOfficer,
+                self::QaSupervisor,
                 self::QaDirector,
                 self::UploadOnly,
                 self::IctAdmin,

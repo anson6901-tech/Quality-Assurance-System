@@ -18,10 +18,13 @@ withDefaults(defineProps<Props>(), {
 <template>
     <AppShell variant="sidebar">
         <AppSidebar />
-        <AppContent variant="sidebar" class="overflow-x-hidden bg-[#f4f7fb]">
+        <AppContent
+            variant="sidebar"
+            class="min-w-0 overflow-x-hidden bg-[#f4f7fb]"
+        >
             <AppSidebarHeader :breadcrumbs="breadcrumbs" />
             <main
-                class="mx-auto w-full max-w-[1680px] px-6 py-7 sm:px-8 lg:px-10"
+                class="mx-auto w-full max-w-[1680px] min-w-0 px-4 py-5 sm:px-6 sm:py-7 lg:px-10"
             >
                 <slot />
             </main>

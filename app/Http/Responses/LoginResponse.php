@@ -22,6 +22,11 @@ class LoginResponse implements LoginResponseContract
 
         URL::defaults(['current_team' => $team->slug]);
 
+        if ($user?->must_change_password && ! $request->wantsJson()) {
+            return redirect()->route('profile.edit')
+                ->with('status', 'password-change-required');
+        }
+
         return $request->wantsJson()
             ? new JsonResponse(['two_factor' => false], 200)
             : redirect()->intended("/{$team->slug}".Fortify::redirects('login'));

@@ -3,6 +3,7 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import { Archive, Pencil, Plus, RotateCcw } from 'lucide-vue-next';
 import { ref } from 'vue';
 import Heading from '@/components/Heading.vue';
+import BulkImportDialog from '@/components/BulkImportDialog.vue';
 import InputError from '@/components/InputError.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,20 @@ const editForm = useForm({
 const addOpen = ref(false);
 const editOpen = ref(false);
 
+const normalizeDateInput = (value: string | null) => value?.slice(0, 10) ?? '';
+
+const formatDate = (value: string | null) => {
+    const normalized = normalizeDateInput(value);
+
+    if (!normalized) {
+        return '';
+    }
+
+    const [year, month, day] = normalized.split('-');
+
+    return `${day}/${month}/${year}`;
+};
+
 const closeAdd = () => {
     addOpen.value = false;
     form.reset();
@@ -75,8 +90,8 @@ const submit = () => {
 const startEdit = (academicYear: AcademicYear) => {
     editForm.id = academicYear.id;
     editForm.name = academicYear.name;
-    editForm.starts_on = academicYear.starts_on ?? '';
-    editForm.ends_on = academicYear.ends_on ?? '';
+    editForm.starts_on = normalizeDateInput(academicYear.starts_on);
+    editForm.ends_on = normalizeDateInput(academicYear.ends_on);
     editForm.status = academicYear.status;
     editOpen.value = true;
 };
@@ -128,13 +143,22 @@ const setStatus = (
                 description="Create years for report uploads and archive old academic cycles"
             />
 
-            <Button
-                type="button"
-                class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                @click="addOpen = true"
-            >
-                <Plus /> Add academic year
-            </Button>
+            <div class="flex flex-wrap gap-2">
+                <BulkImportDialog
+                    title="Bulk add academic years"
+                    description="Download the date-ready template, complete it, and upload it."
+                    template-url="/quality/bulk/academic-years/template"
+                    import-url="/quality/bulk/academic-years"
+                    columns="name, starts_on, ends_on, status"
+                />
+                <Button
+                    type="button"
+                    class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                    @click="addOpen = true"
+                >
+                    <Plus /> Add academic year
+                </Button>
+            </div>
         </div>
 
         <div
@@ -163,7 +187,7 @@ const setStatus = (
                 <div>
                     {{
                         academicYear.starts_on && academicYear.ends_on
-                            ? `${academicYear.starts_on} to ${academicYear.ends_on}`
+                            ? `${formatDate(academicYear.starts_on)} to ${formatDate(academicYear.ends_on)}`
                             : 'Dates not set'
                     }}
                 </div>

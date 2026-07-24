@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { Head, router, useForm } from '@inertiajs/vue3';
 import {
-    Check,
-    FileUp,
+    Combine,
     RotateCcw,
     Search,
+    Split,
     Trash2,
     Users,
 } from 'lucide-vue-next';
@@ -43,10 +43,18 @@ type ApprovalReport = {
     academicYear: string | null;
 };
 type Course = {
+    offeringId: number;
+    offeringIds: number[];
     id: number;
     code: string;
     title: string;
     courseType: 'normal' | 'module';
+    program: { id: number; name: string; code: string } | null;
+    programs: Array<{ id: number; name: string; code: string }>;
+    programIds: number[];
+    levels: string[];
+    variants: Course[];
+    hasDifferentLecturers?: boolean;
     level: string | null;
     department: { name: string; school: { name: string } };
     lecturers: Lecturer[];
@@ -57,7 +65,7 @@ const props = defineProps<{
     courses: Course[];
     lecturers: Lecturer[];
     academicYears: AcademicYear[];
-    filters: { academicYearId: number; semesterId: number };
+    filters: { academicYearId: number | null; semesterId: number | null };
     canUploadReports: boolean;
     canViewApprovals: boolean;
     canApproveReports: boolean;
@@ -75,12 +83,16 @@ defineOptions({
 
 const assignmentForm = useForm({
     semester_id: '',
+    program_ids: [] as number[],
     lecturer_ids: [] as number[],
     assignments: {} as Record<
         number,
         { student_count: string; allocated_hours: string }
     >,
 });
+
+const assignmentError = (field: string): string | undefined =>
+    (assignmentForm.errors as Record<string, string | undefined>)[field];
 const reportForm = useForm({
     title: '',
     category: 'Academic Quality',
@@ -88,6 +100,7 @@ const reportForm = useForm({
         ? String(props.academicYears[0].id)
         : '',
     semester_id: '',
+    program_id: '',
     summary: '',
     lecturer_id: '',
     course_ids: [] as number[],
@@ -101,13 +114,20 @@ const selectedCourse = ref<Course | null>(null);
 const reportCourse = ref<Course | null>(null);
 const approvalCourse = ref<Course | null>(null);
 const lecturerSearch = ref('');
-const selectedAcademicYearId = ref(String(props.filters.academicYearId));
-const selectedSemesterId = ref(String(props.filters.semesterId));
+const selectedAcademicYearId = ref(
+    props.filters.academicYearId ? String(props.filters.academicYearId) : '',
+);
+const selectedSemesterId = ref(
+    props.filters.semesterId ? String(props.filters.semesterId) : '',
+);
 const courseCodeSearch = ref('');
 const schoolFilter = ref('');
 const departmentFilter = ref('');
+const programFilter = ref('');
+const levelFilter = ref('');
 const courseTypeFilter = ref('');
 const lecturerFilter = ref('');
+const splitCourseCodes = ref<string[]>([]);
 const selectedAcademicYear = computed(
     () =>
         props.academicYears.find(
@@ -127,6 +147,25 @@ const departments = computed(() =>
         .map((course) => course.department.name)
         .filter((value, index, values) => values.indexOf(value) === index),
 );
+const programs = computed(() =>
+    props.courses
+        .filter(
+            (course) =>
+                (!schoolFilter.value ||
+                    course.department.school.name === schoolFilter.value) &&
+                (!departmentFilter.value ||
+                    course.department.name === departmentFilter.value),
+        )
+        .flatMap((course) => course.programs)
+        .filter(
+            (program): program is { id: number; name: string; code: string } =>
+                program !== null,
+        )
+        .filter(
+            (program, index, values) =>
+                values.findIndex((value) => value.id === program.id) === index,
+        ),
+);
 const filteredCourses = computed(() =>
     props.courses.filter(
         (course) =>
@@ -138,6 +177,11 @@ const filteredCourses = computed(() =>
                 course.department.school.name === schoolFilter.value) &&
             (!departmentFilter.value ||
                 course.department.name === departmentFilter.value) &&
+            (!programFilter.value ||
+                course.programs.some(
+                    (program) => String(program.id) === programFilter.value,
+                )) &&
+            (!levelFilter.value || course.level === levelFilter.value) &&
             (!courseTypeFilter.value ||
                 course.courseType === courseTypeFilter.value) &&
             (!lecturerFilter.value ||
@@ -145,6 +189,22 @@ const filteredCourses = computed(() =>
                     (lecturer) => String(lecturer.id) === lecturerFilter.value,
                 )),
     ),
+);
+const displayCourses = computed(() => filteredCourses.value);
+const toggleCourseSplit = (courseCode: string) => {
+    splitCourseCodes.value = splitCourseCodes.value.includes(courseCode)
+        ? splitCourseCodes.value.filter((code) => code !== courseCode)
+        : [...splitCourseCodes.value, courseCode];
+};
+const visibleCourseVariants = (course: Course) =>
+    course.variants.length === 1 ||
+    splitCourseCodes.value.includes(course.code)
+        ? course.variants
+        : [];
+const levels = computed(() =>
+    [
+        ...new Set(props.courses.map((course) => course.level).filter(Boolean)),
+    ].sort((left, right) => Number(left) - Number(right)),
 );
 const filteredLecturers = computed(() => {
     const search = lecturerSearch.value.trim().toLowerCase();
@@ -160,6 +220,7 @@ const filteredLecturers = computed(() => {
 const openAssignments = (course: Course) => {
     selectedCourse.value = course;
     assignmentForm.semester_id = selectedSemesterId.value;
+    assignmentForm.program_ids = course.programIds;
     assignmentForm.lecturer_ids = course.lecturers.map(
         (lecturer) => lecturer.id,
     );
@@ -221,6 +282,7 @@ const openReport = (course: Course) => {
     reportForm.reset();
     reportForm.academic_year_id = selectedAcademicYearId.value;
     reportForm.semester_id = selectedSemesterId.value;
+    reportForm.program_id = course.program ? String(course.program.id) : '';
     reportForm.course_ids = [course.id];
     reportForm.clearErrors();
     reportOpen.value = true;
@@ -282,6 +344,7 @@ const deleteReport = (report: ApprovalReport) => {
                 <label class="text-sm font-medium">Academic year</label
                 ><select
                     v-model="selectedAcademicYearId"
+                    :disabled="academicYears.length === 0"
                     class="h-10 rounded-md border bg-white px-3 text-sm"
                     @change="
                         selectedSemesterId = String(
@@ -289,6 +352,9 @@ const deleteReport = (report: ApprovalReport) => {
                         )
                     "
                 >
+                    <option v-if="academicYears.length === 0" value="">
+                        No academic years
+                    </option>
                     <option
                         v-for="year in academicYears"
                         :key="year.id"
@@ -302,8 +368,18 @@ const deleteReport = (report: ApprovalReport) => {
                 <label class="text-sm font-medium">Semester</label
                 ><select
                     v-model="selectedSemesterId"
+                    :disabled="!selectedAcademicYear"
                     class="h-10 rounded-md border bg-white px-3 text-sm"
                 >
+                    <option
+                        v-if="
+                            !selectedAcademicYear ||
+                            selectedAcademicYear.semesters.length === 0
+                        "
+                        value=""
+                    >
+                        No semesters
+                    </option>
                     <option
                         v-for="semester in selectedAcademicYear?.semesters ??
                         []"
@@ -314,31 +390,349 @@ const deleteReport = (report: ApprovalReport) => {
                     </option>
                 </select>
             </div>
-            <div class="grid gap-1"><label class="text-sm font-medium">Course code</label><Input v-model="courseCodeSearch" class="h-10 w-40 bg-white" placeholder="Search course" /></div>
-            <div class="grid gap-1"><label class="text-sm font-medium">School</label><select v-model="schoolFilter" class="h-10 rounded-md border bg-white px-3 text-sm" @change="departmentFilter = ''"><option value="">All schools</option><option v-for="school in schools" :key="school" :value="school">{{ school }}</option></select></div>
-            <div class="grid gap-1"><label class="text-sm font-medium">Department</label><select v-model="departmentFilter" class="h-10 rounded-md border bg-white px-3 text-sm"><option value="">All departments</option><option v-for="department in departments" :key="department" :value="department">{{ department }}</option></select></div>
-            <div class="grid gap-1"><label class="text-sm font-medium">Course type</label><select v-model="courseTypeFilter" class="h-10 rounded-md border bg-white px-3 text-sm"><option value="">All types</option><option value="normal">Normal</option><option value="module">Module</option></select></div>
-            <div class="grid gap-1"><label class="text-sm font-medium">Lecturer</label><select v-model="lecturerFilter" class="h-10 rounded-md border bg-white px-3 text-sm"><option value="">All lecturers</option><option v-for="lecturer in lecturers" :key="lecturer.id" :value="lecturer.id">{{ lecturer.name }}</option></select></div>
+            <div class="grid gap-1">
+                <label class="text-sm font-medium">Course code</label
+                ><Input
+                    v-model="courseCodeSearch"
+                    class="h-10 w-40 bg-white"
+                    placeholder="Search course"
+                />
+            </div>
+            <div class="grid gap-1">
+                <label class="text-sm font-medium">School</label
+                ><select
+                    v-model="schoolFilter"
+                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                    @change="
+                        departmentFilter = '';
+                        programFilter = '';
+                    "
+                >
+                    <option value="">All schools</option>
+                    <option
+                        v-for="school in schools"
+                        :key="school"
+                        :value="school"
+                    >
+                        {{ school }}
+                    </option>
+                </select>
+            </div>
+            <div class="grid gap-1">
+                <label class="text-sm font-medium">Department</label
+                ><select
+                    v-model="departmentFilter"
+                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                    @change="programFilter = ''"
+                >
+                    <option value="">All departments</option>
+                    <option
+                        v-for="department in departments"
+                        :key="department"
+                        :value="department"
+                    >
+                        {{ department }}
+                    </option>
+                </select>
+            </div>
+            <div class="grid gap-1">
+                <label class="text-sm font-medium">Program</label
+                ><select
+                    v-model="programFilter"
+                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                >
+                    <option value="">All programs</option>
+                    <option
+                        v-for="program in programs"
+                        :key="program.id"
+                        :value="String(program.id)"
+                    >
+                        {{ program.name }} ({{ program.code }})
+                    </option>
+                </select>
+            </div>
+            <div class="grid gap-1">
+                <label class="text-sm font-medium">Level</label>
+                <select
+                    v-model="levelFilter"
+                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                >
+                    <option value="">All levels</option>
+                    <option
+                        v-for="level in levels"
+                        :key="level!"
+                        :value="level!"
+                    >
+                        Level {{ level }}
+                    </option>
+                </select>
+            </div>
+            <div class="grid gap-1">
+                <label class="text-sm font-medium">Course type</label
+                ><select
+                    v-model="courseTypeFilter"
+                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                >
+                    <option value="">All types</option>
+                    <option value="normal">Normal</option>
+                    <option value="module">Module</option>
+                </select>
+            </div>
+            <div class="grid gap-1">
+                <label class="text-sm font-medium">Lecturer</label
+                ><select
+                    v-model="lecturerFilter"
+                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                >
+                    <option value="">All lecturers</option>
+                    <option
+                        v-for="lecturer in lecturers"
+                        :key="lecturer.id"
+                        :value="lecturer.id"
+                    >
+                        {{ lecturer.name }}
+                    </option>
+                </select>
+            </div>
             <Button
                 type="button"
                 class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                :disabled="!selectedAcademicYearId || !selectedSemesterId"
                 @click="applyFilters"
                 >Apply filters</Button
             >
         </div>
+        <div class="space-y-4">
+            <article
+                v-for="(course, courseIndex) in displayCourses"
+                :key="course.code"
+                class="overflow-hidden rounded-xl border border-[#b8ced8] bg-white shadow-sm"
+            >
+                <div
+                    class="grid gap-4 border-b border-[#b8ced8] bg-[#f8fbfc] px-4 py-4 md:grid-cols-[auto_1.5fr_0.65fr_0.75fr_0.75fr_1fr] md:items-center"
+                >
+                    <div
+                        class="flex h-8 w-8 items-center justify-center rounded-md bg-[#d9edf5] text-sm font-bold text-[#234d5d]"
+                    >
+                        {{ courseIndex + 1 }}
+                    </div>
+                    <div class="min-w-0">
+                        <div class="text-sm font-bold text-[#075b2e]">
+                            {{ course.code }}
+                        </div>
+                        <div class="truncate text-sm text-[#243d47]">
+                            {{ course.title }}
+                        </div>
+                    </div>
+                    <div class="text-sm">
+                        <div
+                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
+                        >
+                            Level
+                        </div>
+                        {{
+                            course.levels.length
+                                ? course.levels.join(', ')
+                                : '—'
+                        }}
+                    </div>
+                    <div class="text-sm">
+                        <div
+                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
+                        >
+                            Offerings
+                        </div>
+                        {{ course.variants.length }}
+                    </div>
+                    <div class="text-sm">
+                        <div
+                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
+                        >
+                            Type
+                        </div>
+                        <span class="capitalize">{{ course.courseType }}</span>
+                    </div>
+                    <div class="min-w-0 text-sm">
+                        <div
+                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
+                        >
+                            Department
+                        </div>
+                        <div class="truncate">
+                            {{ course.department.name }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="px-4 py-4">
+                    <div
+                        class="overflow-hidden rounded-md border border-[#9fb7c1]"
+                    >
+                        <div
+                            class="hidden grid-cols-[1.55fr_0.65fr_0.55fr_1.7fr_0.8fr_auto] gap-px bg-[#9fb7c1] text-xs font-semibold text-[#294c59] md:grid"
+                        >
+                            <div class="bg-[#d9edf5] px-3 py-2">Program</div>
+                            <div class="bg-[#d9edf5] px-3 py-2">Code</div>
+                            <div class="bg-[#d9edf5] px-3 py-2">Level</div>
+                            <div class="bg-[#d9edf5] px-3 py-2">
+                                Assigned lecturers
+                            </div>
+                            <div class="bg-[#d9edf5] px-3 py-2">Workload</div>
+                            <div class="bg-[#d9edf5] px-3 py-2">Action</div>
+                        </div>
+                        <div class="divide-y divide-[#cbdbe1] bg-white">
+                            <div
+                                v-if="
+                                    course.variants.length > 1 &&
+                                    !splitCourseCodes.includes(course.code)
+                                "
+                                class="flex items-center justify-between gap-4 bg-[#fbfdfe] px-4 py-5"
+                            >
+                                <div>
+                                    <div class="font-medium text-[#243d47]">
+                                        {{ course.variants.length }} program
+                                        offerings grouped
+                                    </div>
+                                    <div
+                                        class="mt-1 text-xs text-muted-foreground"
+                                    >
+                                        Split this course to assign lecturers
+                                        and workload to each program offering.
+                                    </div>
+                                </div>
+                                <Split class="h-5 w-5 text-[#087036]" />
+                            </div>
+                            <div
+                                v-for="variant in visibleCourseVariants(course)"
+                                :key="variant.offeringId"
+                                class="grid gap-3 px-3 py-3 text-sm md:grid-cols-[1.55fr_0.65fr_0.55fr_1.7fr_0.8fr_auto] md:items-center"
+                            >
+                                <div class="font-medium text-[#243d47]">
+                                    {{
+                                        variant.program?.name ??
+                                        'Program not set'
+                                    }}
+                                </div>
+                                <div class="text-muted-foreground">
+                                    {{ variant.program?.code ?? '—' }}
+                                </div>
+                                <div>{{ variant.level ?? '—' }}</div>
+                                <div class="min-w-0">
+                                    <div
+                                        v-if="variant.lecturers.length"
+                                        class="space-y-1"
+                                    >
+                                        <div
+                                            v-for="lecturer in variant.lecturers"
+                                            :key="lecturer.id"
+                                            class="truncate"
+                                        >
+                                            {{ lecturer.name }}
+                                        </div>
+                                    </div>
+                                    <span
+                                        v-else
+                                        class="text-muted-foreground"
+                                    >
+                                        Not assigned
+                                    </span>
+                                </div>
+                                <div class="text-xs text-muted-foreground">
+                                    <template
+                                        v-if="variant.lecturers.length"
+                                    >
+                                        <div
+                                            v-for="lecturer in variant.lecturers"
+                                            :key="lecturer.id"
+                                        >
+                                            {{
+                                                lecturer.studentCount ?? '—'
+                                            }}
+                                            students ·
+                                            {{
+                                                lecturer.allocatedHours ?? '—'
+                                            }}
+                                            hrs
+                                        </div>
+                                    </template>
+                                    <span v-else>Not set</span>
+                                </div>
+                                <div class="flex justify-end">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        class="border-[#007a2f]/30 text-[#007a2f] hover:bg-[#e3f6eb]"
+                                        @click="openAssignments(variant)"
+                                    >
+                                        <Users class="h-4 w-4" /> Assign
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    class="flex flex-wrap justify-end gap-2 border-t border-[#cbdbe1] bg-[#f8fbfc] px-4 py-3"
+                >
+                    <Button
+                        type="button"
+                        size="sm"
+                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                        @click="openAssignments(course)"
+                    >
+                        <Users class="h-4 w-4" />
+                        Assign from main course
+                    </Button>
+                    <Button
+                        v-if="course.variants.length > 1"
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
+                        @click="toggleCourseSplit(course.code)"
+                    >
+                        <Combine
+                            v-if="splitCourseCodes.includes(course.code)"
+                            class="h-4 w-4"
+                        />
+                        <Split v-else class="h-4 w-4" />
+                        {{
+                            splitCourseCodes.includes(course.code)
+                                ? 'Combine offerings'
+                                : 'Split course offerings'
+                        }}
+                    </Button>
+                </div>
+            </article>
+
+            <p
+                v-if="courses.length === 0"
+                class="rounded-xl border border-dashed border-[#9fd8b8] bg-white px-4 py-10 text-center text-sm text-muted-foreground"
+            >
+                {{
+                    academicYears.length === 0
+                        ? 'Create an academic year before assigning lecturers to courses.'
+                        : !selectedSemesterId
+                          ? 'Add a semester to the selected academic year before assigning courses.'
+                          : 'No courses are available for your department.'
+                }}
+            </p>
+        </div>
         <div
+            v-if="false"
             class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
         >
             <div
                 class="grid grid-cols-[1.2fr_1fr_110px_1.4fr_auto] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
             >
-                <span>Course</span><span>School & department</span
-                ><span>Type</span><span>Assigned lecturers</span
-                ><span>Action</span>
+                <span>Course</span><span>Offering program</span><span>Type</span
+                ><span>Assigned lecturers</span><span>Action</span>
             </div>
             <div
-                v-for="course in filteredCourses"
-                :key="course.id"
+                v-for="course in displayCourses"
+                :key="course.offeringIds.join('-')"
                 class="grid grid-cols-[1.2fr_1fr_110px_1.4fr_auto] items-center gap-4 border-b px-4 py-4 text-sm last:border-b-0"
             >
                 <div>
@@ -346,14 +740,45 @@ const deleteReport = (report: ApprovalReport) => {
                         {{ course.code }} - {{ course.title }}
                     </div>
                     <div class="text-muted-foreground">
-                        {{ course.level ?? 'Level not set' }}
+                        {{
+                            course.levels.length
+                                ? `Level ${course.levels.join(', ')}`
+                                : 'Level not set'
+                        }}
                     </div>
                 </div>
                 <div>
-                    <div>{{ course.department.school.name }}</div>
-                    <div class="text-muted-foreground">
-                        {{ course.department.name }}
+                    <div
+                        v-if="
+                            course.variants.length > 1 &&
+                            !splitCourseCodes.includes(course.code)
+                        "
+                        class="font-medium text-[#234d5d]"
+                    >
+                        {{ course.variants.length }} offerings grouped
                     </div>
+                    <div
+                        v-for="variant in visibleCourseVariants(course)"
+                        :key="variant.offeringId"
+                        class="font-medium"
+                    >
+                        {{ variant.program?.name ?? 'Program not set' }}
+                        <span
+                            v-if="variant.program"
+                            class="text-muted-foreground"
+                        >
+                            ({{ variant.program?.code }})
+                        </span>
+                    </div>
+                    <span
+                        v-if="
+                            course.programs.length === 0 &&
+                            visibleCourseVariants(course).length === 0
+                        "
+                        class="text-muted-foreground"
+                    >
+                        Program not set
+                    </span>
                 </div>
                 <span class="capitalize">{{ course.courseType }}</span>
                 <div class="text-muted-foreground">
@@ -365,7 +790,10 @@ const deleteReport = (report: ApprovalReport) => {
                             )
                             .join(', ')
                     }}</span
-                    ><span v-else>No lecturer assigned this semester</span>
+                    ><span v-else-if="course.hasDifferentLecturers">
+                        Different lecturers — split to view
+                    </span>
+                    <span v-else>No lecturer assigned this semester</span>
                 </div>
                 <div class="flex flex-wrap justify-end gap-2">
                     <Button
@@ -375,30 +803,39 @@ const deleteReport = (report: ApprovalReport) => {
                         class="border-[#007a2f]/30 text-[#007a2f] hover:bg-[#e3f6eb]"
                         @click="openAssignments(course)"
                         ><Users class="h-4 w-4" /> Assign</Button
-                    ><Button
-                        v-if="canUploadReports"
-                        type="button"
-                        size="sm"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        :disabled="course.lecturers.length === 0"
-                        @click="openReport(course)"
-                        ><FileUp class="h-4 w-4" /> Upload report</Button
-                    ><Button
-                        v-if="canViewApprovals"
+                    >
+                    <Button
+                        v-if="course.variants.length > 1"
                         type="button"
                         variant="outline"
                         size="sm"
                         class="border-[#007a2f]/30 text-[#007a2f] hover:bg-[#e3f6eb]"
-                        @click="openApprovals(course)"
-                        ><Check class="h-4 w-4" /> Approvals</Button
+                        @click="toggleCourseSplit(course.code)"
                     >
+                        <Combine
+                            v-if="splitCourseCodes.includes(course.code)"
+                            class="h-4 w-4"
+                        />
+                        <Split v-else class="h-4 w-4" />
+                        {{
+                            splitCourseCodes.includes(course.code)
+                                ? 'Combine'
+                                : 'Split by program & level'
+                        }}
+                    </Button>
                 </div>
             </div>
             <p
                 v-if="courses.length === 0"
                 class="px-4 py-10 text-center text-sm text-muted-foreground"
             >
-                No courses are available for your department.
+                {{
+                    academicYears.length === 0
+                        ? 'Create an academic year before assigning lecturers to courses.'
+                        : !selectedSemesterId
+                          ? 'Add a semester to the selected academic year before assigning courses.'
+                          : 'No courses are available for your department.'
+                }}
             </p>
         </div>
     </div>
@@ -509,9 +946,9 @@ const deleteReport = (report: ApprovalReport) => {
                                         required
                                     /><InputError
                                         :message="
-                                            assignmentForm.errors[
-                                                `assignments.${lecturerId}.student_count`
-                                            ]
+                                            assignmentError(
+                                                `assignments.${lecturerId}.student_count`,
+                                            )
                                         "
                                     />
                                 </div>
@@ -530,9 +967,9 @@ const deleteReport = (report: ApprovalReport) => {
                                         required
                                     /><InputError
                                         :message="
-                                            assignmentForm.errors[
-                                                `assignments.${lecturerId}.allocated_hours`
-                                            ]
+                                            assignmentError(
+                                                `assignments.${lecturerId}.allocated_hours`,
+                                            )
                                         "
                                     />
                                 </div>

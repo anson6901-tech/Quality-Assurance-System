@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CourseController extends Controller
 {
@@ -48,16 +49,17 @@ class CourseController extends Controller
             ],
             'title' => ['required', 'string', 'max:255'],
             'course_type' => ['required', 'string', Rule::in(['normal', 'module'])],
-            'level' => ['nullable', 'string', 'max:50'],
+            'level' => ['required', 'string', 'regex:/^[1-9][0-9]*00$/'],
             'credit_hours' => ['nullable', 'integer', 'min:1', 'max:12'],
         ]);
 
         Course::create([
             'department_id' => $validated['department_id'],
+            'program_id' => null,
             'code' => $validated['code'],
             'title' => $validated['title'],
             'course_type' => $validated['course_type'],
-            'level' => $validated['level'] ?? null,
+            'level' => $validated['level'],
             'credit_hours' => $validated['credit_hours'] ?? null,
         ]);
 
@@ -83,7 +85,7 @@ class CourseController extends Controller
         $columns = collect($header)
             ->mapWithKeys(fn ($column, $index) => [strtolower(trim((string) $column)) => $index]);
 
-        foreach (['code', 'title', 'credit_hours'] as $requiredColumn) {
+        foreach (['code', 'title', 'level', 'credit_hours'] as $requiredColumn) {
             abort_unless($columns->has($requiredColumn), 422);
         }
 
@@ -93,14 +95,33 @@ class CourseController extends Controller
         abort_unless($departmentColumn !== null, 422);
 
         $imported = 0;
+        $skipped = 0;
 
         while (($row = fgetcsv($handle)) !== false) {
             $code = trim((string) ($row[$columns['code']] ?? ''));
             $title = trim((string) ($row[$columns['title']] ?? ''));
             $creditHours = trim((string) ($row[$columns['credit_hours']] ?? ''));
+            $courseType = $columns->has('course_type')
+                ? strtolower(trim((string) ($row[$columns['course_type']] ?? 'normal')))
+                : 'normal';
+            $level = trim((string) ($row[$columns['level']] ?? ''));
             $departmentValue = trim((string) ($row[$columns[$departmentColumn]] ?? ''));
 
             if ($code === '' || $title === '' || $departmentValue === '') {
+                $skipped++;
+                continue;
+            }
+
+            if (! in_array($courseType, ['normal', 'module'], true)) {
+                $skipped++;
+                continue;
+            }
+
+            if (
+                $creditHours !== ''
+                && (! ctype_digit($creditHours) || (int) $creditHours < 1 || (int) $creditHours > 12)
+            ) {
+                $skipped++;
                 continue;
             }
 
@@ -110,13 +131,22 @@ class CourseController extends Controller
                 ->first();
 
             if (! $department) {
+                $skipped++;
+                continue;
+            }
+
+            if (! preg_match('/^[1-9][0-9]*00$/', $level)) {
+                $skipped++;
                 continue;
             }
 
             Course::updateOrCreate(
                 ['department_id' => $department->id, 'code' => $code],
                 [
+                    'program_id' => null,
                     'title' => $title,
+                    'course_type' => $courseType,
+                    'level' => $level,
                     'credit_hours' => $creditHours === '' ? null : (int) $creditHours,
                 ],
             );
@@ -126,9 +156,49 @@ class CourseController extends Controller
 
         fclose($handle);
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __(':count courses imported.', ['count' => $imported])]);
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => __(':count courses imported; :skipped rows skipped.', [
+                'count' => $imported,
+                'skipped' => $skipped,
+            ]),
+        ]);
 
         return to_route('quality.courses.index');
+    }
+
+    public function downloadImportTemplate(Request $request): StreamedResponse
+    {
+        abort_unless($request->user()->canManageQualityStructure(), 403);
+
+        $departments = Department::query()->orderBy('code')->get(['id', 'code']);
+
+        return response()->streamDownload(function () use ($departments): void {
+            $output = fopen('php://output', 'w');
+            fputcsv($output, [
+                'department_code',
+                'code',
+                'title',
+                'course_type',
+                'level',
+                'credit_hours',
+            ]);
+
+            foreach ($departments as $department) {
+                fputcsv($output, [
+                    $department->code,
+                    '',
+                    '',
+                    'normal',
+                    '100',
+                    '3',
+                ]);
+            }
+
+            fclose($output);
+        }, 'course-import-template.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     public function update(Request $request, Course $course): RedirectResponse
@@ -147,14 +217,17 @@ class CourseController extends Controller
             ],
             'title' => ['required', 'string', 'max:255'],
             'course_type' => ['required', 'string', Rule::in(['normal', 'module'])],
+            'level' => ['required', 'string', 'regex:/^[1-9][0-9]*00$/'],
             'credit_hours' => ['nullable', 'integer', 'min:1', 'max:12'],
         ]);
 
         $course->update([
             'department_id' => $validated['department_id'],
+            'program_id' => null,
             'code' => $validated['code'],
             'title' => $validated['title'],
             'course_type' => $validated['course_type'],
+            'level' => $validated['level'],
             'credit_hours' => $validated['credit_hours'] ?? null,
         ]);
 
@@ -175,4 +248,5 @@ class CourseController extends Controller
 
         return to_route('quality.courses.index');
     }
+
 }

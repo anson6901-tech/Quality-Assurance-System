@@ -39,7 +39,19 @@ const user = computed(() => page.props.auth.user);
 
     <h1 class="sr-only">Profile settings</h1>
 
-    <div class="flex flex-col space-y-6">
+    <div
+        v-if="user.must_change_password"
+        class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm"
+        role="alert"
+    >
+        <div class="font-semibold">Create your personal password</div>
+        <p class="mt-1 text-sm">
+            This is your first sign-in or an administrator issued a temporary
+            password. Change it below before continuing to the application.
+        </p>
+    </div>
+
+    <div v-if="!user.must_change_password" class="flex flex-col space-y-6">
         <Heading
             variant="small"
             title="Profile information"

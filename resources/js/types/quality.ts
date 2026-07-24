@@ -10,6 +10,7 @@ export type QualityProfile = {
     canViewReports: boolean;
     canUploadReports: boolean;
     canViewApprovalQueue: boolean;
+    canReviewReports: boolean;
     canApproveReports: boolean;
     canViewPrintQueue: boolean;
     canViewAuditLogs: boolean;
@@ -21,6 +22,7 @@ export type QualityReport = {
     category: string;
     status: string;
     academicYear: AcademicYearOption | null;
+    semester: { id: number; name: string } | null;
     summary: string | null;
     filePath: string | null;
     fileUrl: string | null;
@@ -28,9 +30,17 @@ export type QualityReport = {
     location: string;
     school: { id: number; name: string } | null;
     department: { id: number; name: string } | null;
+    program: { id: number; name: string; code: string } | null;
     lecturer: LecturerOption | null;
     courses: CourseOption[];
     uploader: { id: number; name: string; email?: string | null } | null;
+    reviews: Array<{
+        id: number;
+        action: string;
+        note: string | null;
+        actor: string | null;
+        createdAt: string;
+    }>;
     createdAt: string;
     isLocked: boolean;
 };

@@ -36,21 +36,7 @@ class DepartmentController extends Controller
     {
         abort_unless($request->user()->canManageQualityStructure(), 403);
 
-        $validated = $request->validate([
-            'school_id' => ['required', 'integer', Rule::exists('schools', 'id')],
-            'name' => ['required', 'string', 'max:255'],
-            'code' => ['required', 'string', 'max:20'],
-            'hod_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
-        ]);
-
-        $request->validate([
-            'name' => [
-                Rule::unique('departments', 'name')->where('school_id', $validated['school_id']),
-            ],
-            'code' => [
-                Rule::unique('departments', 'code')->where('school_id', $validated['school_id']),
-            ],
-        ]);
+        $validated = $this->validatedDepartmentData($request);
 
         Department::create([
             ...$validated,
@@ -60,5 +46,60 @@ class DepartmentController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Department created.')]);
 
         return to_route('quality.departments.index');
+    }
+
+    public function update(Request $request, Department $department): RedirectResponse
+    {
+        abort_unless($request->user()->canManageQualityStructure(), 403);
+
+        $validated = $this->validatedDepartmentData($request, $department);
+
+        $department->update([
+            ...$validated,
+            'hod_id' => $validated['hod_id'] ?? null,
+        ]);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Department updated.')]);
+
+        return to_route('quality.departments.index');
+    }
+
+    public function destroy(Request $request, Department $department): RedirectResponse
+    {
+        abort_unless($request->user()->canManageQualityStructure(), 403);
+
+        $department->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Department deleted.')]);
+
+        return to_route('quality.departments.index');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validatedDepartmentData(Request $request, ?Department $department = null): array
+    {
+        $validated = $request->validate([
+            'school_id' => ['required', 'integer', Rule::exists('schools', 'id')],
+            'name' => ['required', 'string', 'max:255'],
+            'code' => ['required', 'string', 'max:20'],
+            'hod_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
+        ]);
+
+        $request->validate([
+            'name' => [
+                Rule::unique('departments', 'name')
+                    ->where('school_id', $validated['school_id'])
+                    ->ignore($department),
+            ],
+            'code' => [
+                Rule::unique('departments', 'code')
+                    ->where('school_id', $validated['school_id'])
+                    ->ignore($department),
+            ],
+        ]);
+
+        return $validated;
     }
 }

@@ -30,20 +30,20 @@ withDefaults(
 
 <template>
     <header
-        class="flex h-20 shrink-0 items-center justify-between gap-6 border-b border-[#bfe7ce] bg-[linear-gradient(90deg,#f8fffb_0%,#edf9f1_48%,#ffffff_100%)] px-6 shadow-[0_10px_30px_rgba(0,122,47,0.08)] backdrop-blur transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-18 lg:px-10"
+        class="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-[#bfe7ce] bg-[linear-gradient(90deg,#f8fffb_0%,#edf9f1_48%,#ffffff_100%)] px-4 shadow-[0_10px_30px_rgba(0,122,47,0.08)] backdrop-blur transition-[width,height] ease-linear sm:h-20 sm:gap-6 sm:px-6 lg:px-10"
     >
         <div class="flex min-w-0 flex-1 items-center gap-4">
             <SidebarTrigger
-                class="size-10 rounded-xl border border-[#bfe7ce] bg-white text-[#064b27] shadow-sm hover:bg-[#eefaf3] hover:text-[#007a2f]"
+                class="size-10 rounded-xl border border-[#bfe7ce] bg-white text-[#064b27] shadow-sm hover:bg-[#eefaf3] hover:text-[#007a2f] focus-visible:ring-2 focus-visible:ring-[#007a2f]/30"
             />
         </div>
 
         <div
-            class="flex shrink-0 items-center gap-3 rounded-2xl border border-[#bfe7ce] bg-white/85 px-3 py-2 shadow-sm"
+            class="flex min-w-0 shrink-0 items-center gap-2 rounded-2xl border border-[#bfe7ce] bg-white/90 px-2 py-1.5 shadow-sm sm:gap-3 sm:px-3 sm:py-2"
         >
             <button
                 type="button"
-                class="relative flex size-10 items-center justify-center rounded-xl border border-[#d6efdf] bg-[#f4fbf7] text-[#064b27] transition hover:border-[#9fd8b8] hover:bg-[#e8f7ee]"
+                class="relative hidden size-10 items-center justify-center rounded-xl border border-[#d6efdf] bg-[#f4fbf7] text-[#064b27] transition hover:border-[#9fd8b8] hover:bg-[#e8f7ee] sm:flex"
             >
                 <Bell class="size-5" />
                 <span
@@ -55,7 +55,7 @@ withDefaults(
 
             <div class="flex items-center gap-4">
                 <div
-                    class="flex size-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#007a2f,#1f8f43)] text-base font-extrabold text-white shadow-[0_8px_22px_rgba(0,122,47,0.28)] ring-2 ring-[#c8efd6]"
+                    class="flex size-10 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#007a2f,#1f8f43)] text-sm font-extrabold text-white shadow-[0_8px_22px_rgba(0,122,47,0.28)] ring-2 ring-[#c8efd6] sm:size-12 sm:rounded-2xl sm:text-base"
                 >
                     {{ userInitials }}
                 </div>

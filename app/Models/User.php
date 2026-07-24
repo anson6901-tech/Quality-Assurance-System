@@ -17,7 +17,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
-#[Fillable(['name', 'email', 'staff_id', 'password', 'email_verified_at', 'current_team_id', 'university_role', 'school_id', 'department_id'])]
+#[Fillable(['name', 'email', 'staff_id', 'password', 'must_change_password', 'email_verified_at', 'current_team_id', 'university_role', 'school_id', 'department_id', 'is_active'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -34,7 +34,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'must_change_password' => 'boolean',
             'two_factor_confirmed_at' => 'datetime',
+            'is_active' => 'boolean',
         ];
     }
 
@@ -86,7 +88,7 @@ class User extends Authenticatable
     public function assignedCourses(): BelongsToMany
     {
         return $this->belongsToMany(Course::class, 'course_lecturer', 'lecturer_id', 'course_id')
-            ->withPivot(['semester_id', 'student_count', 'allocated_hours'])
+            ->withPivot(['program_id', 'semester_id', 'student_count', 'allocated_hours'])
             ->withTimestamps();
     }
 
@@ -125,9 +127,15 @@ class User extends Authenticatable
         return QualityRolePermission::roleHas($this->university_role, 'approve_reports');
     }
 
+    public function canReviewQualityReports(): bool
+    {
+        return QualityRolePermission::roleHas($this->university_role, 'review_reports');
+    }
+
     public function canViewApprovalQueue(): bool
     {
         return QualityRolePermission::roleHas($this->university_role, 'view_approval_queue')
+            || $this->canReviewQualityReports()
             || $this->canApproveQualityReports();
     }
 
@@ -166,6 +174,7 @@ class User extends Authenticatable
             'canViewReports' => $this->canViewQualityReports(),
             'canUploadReports' => $this->canUploadQualityReports(),
             'canViewApprovalQueue' => $this->canViewApprovalQueue(),
+            'canReviewReports' => $this->canReviewQualityReports(),
             'canApproveReports' => $this->canApproveQualityReports(),
             'canViewPrintQueue' => $this->canViewPrintQueue(),
             'canViewAuditLogs' => $this->canViewAuditLogs(),

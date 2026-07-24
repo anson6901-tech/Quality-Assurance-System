@@ -31,11 +31,7 @@ class SchoolController extends Controller
     {
         abort_unless($request->user()->canManageQualityStructure(), 403);
 
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255', Rule::unique('schools', 'name')],
-            'code' => ['required', 'string', 'max:20', Rule::unique('schools', 'code')],
-            'dean_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
-        ]);
+        $validated = $this->validatedSchoolData($request);
 
         School::create([
             ...$validated,
@@ -45,5 +41,44 @@ class SchoolController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('School created.')]);
 
         return to_route('quality.schools.index');
+    }
+
+    public function update(Request $request, School $school): RedirectResponse
+    {
+        abort_unless($request->user()->canManageQualityStructure(), 403);
+
+        $validated = $this->validatedSchoolData($request, $school);
+
+        $school->update([
+            ...$validated,
+            'dean_id' => $validated['dean_id'] ?? null,
+        ]);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('School updated.')]);
+
+        return to_route('quality.schools.index');
+    }
+
+    public function destroy(Request $request, School $school): RedirectResponse
+    {
+        abort_unless($request->user()->canManageQualityStructure(), 403);
+
+        $school->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('School deleted.')]);
+
+        return to_route('quality.schools.index');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validatedSchoolData(Request $request, ?School $school = null): array
+    {
+        return $request->validate([
+            'name' => ['required', 'string', 'max:255', Rule::unique('schools', 'name')->ignore($school)],
+            'code' => ['required', 'string', 'max:20', Rule::unique('schools', 'code')->ignore($school)],
+            'dean_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
+        ]);
     }
 }

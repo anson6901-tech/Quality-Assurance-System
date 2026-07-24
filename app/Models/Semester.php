@@ -21,4 +21,9 @@ class Semester extends Model
     {
         return $this->hasMany(QualityReport::class);
     }
+
+    public function courseOfferings(): HasMany
+    {
+        return $this->hasMany(CourseOffering::class);
+    }
 }

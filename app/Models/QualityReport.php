@@ -2,28 +2,33 @@
 
 namespace App\Models;
 
+use App\Enums\UniversityRole;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
     'title',
     'category',
     'status',
     'academic_year_id',
+    'semester_id',
     'summary',
     'file_path',
     'school_id',
     'department_id',
+    'program_id',
     'lecturer_id',
     'uploaded_by',
 ])]
 class QualityReport extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     /**
      * @return BelongsTo<School, $this>
@@ -55,6 +60,11 @@ class QualityReport extends Model
         return $this->belongsTo(Department::class);
     }
 
+    public function program(): BelongsTo
+    {
+        return $this->belongsTo(Program::class);
+    }
+
     /**
      * @return BelongsTo<User, $this>
      */
@@ -80,13 +90,32 @@ class QualityReport extends Model
             ->withTimestamps();
     }
 
+    /** @return HasMany<QualityReportReview, $this> */
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(QualityReportReview::class)->latest();
+    }
+
     /**
      * @param  Builder<QualityReport>  $query
      * @return Builder<QualityReport>
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if (QualityRolePermission::roleHas($user->university_role, 'view_own_reports')) {
+        if (
+            $user->university_role === UniversityRole::IctAdmin->value
+            && QualityRolePermission::roleHas($user->university_role, 'view_all_reports')
+        ) {
+            return $query;
+        }
+
+        if (
+            in_array($user->university_role, [
+                UniversityRole::Hod->value,
+                UniversityRole::Lecturer->value,
+            ], true)
+            && QualityRolePermission::roleHas($user->university_role, 'view_own_reports')
+        ) {
             return $query->where(function (Builder $query) use ($user): void {
                 $query
                     ->where('lecturer_id', $user->id)
@@ -125,6 +154,19 @@ class QualityReport extends Model
 
         if (QualityRolePermission::roleHas($user->university_role, 'view_all_reports')) {
             return $query;
+        }
+
+        if (QualityRolePermission::roleHas($user->university_role, 'view_own_reports')) {
+            return $query->where(function (Builder $query) use ($user): void {
+                $query
+                    ->where('lecturer_id', $user->id)
+                    ->orWhere(function (Builder $query) use ($user): void {
+                        $query
+                            ->whereNull('lecturer_id')
+                            ->whereHas('courses', fn (Builder $query) => $query
+                                ->whereHas('lecturers', fn (Builder $query) => $query->whereKey($user->id)));
+                    });
+            });
         }
 
         return $query->whereRaw('1 = 0');

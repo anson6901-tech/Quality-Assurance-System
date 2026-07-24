@@ -9,6 +9,8 @@ import {
     GraduationCap,
     History,
     LayoutGrid,
+    Layers3,
+    ListPlus,
     LogOut,
     Printer,
     Settings,
@@ -29,11 +31,13 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    useSidebar,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import type { NavItem } from '@/types';
 
 const page = usePage();
+const { setOpenMobile } = useSidebar();
 
 const dashboardUrl = computed(() =>
     page.props.currentTeam ? dashboard(page.props.currentTeam.slug).url : '/',
@@ -46,7 +50,7 @@ const showUploadReportItem = computed(() =>
 const showReportsItem = computed(() =>
     Boolean(
         page.props.qualityProfile?.canViewReports ||
-            page.props.qualityProfile?.canApproveReports,
+        page.props.qualityProfile?.canApproveReports,
     ),
 );
 
@@ -68,13 +72,15 @@ const mainNavItems = computed<NavItem[]>(() => [
     ...(showReportsItem.value
         ? [
               {
-                  title: 'Reports',
+                  title: page.props.qualityProfile?.canReviewReports
+                      ? 'Supervisor Review'
+                      : 'My Reports',
                   href: '/quality/reports',
                   icon: ClipboardList,
               },
           ]
         : []),
-    ...(page.props.qualityProfile?.canViewApprovalQueue
+    ...(page.props.qualityProfile?.canApproveReports
         ? [
               {
                   title: 'Approvals',
@@ -133,6 +139,11 @@ const administrationNavItems = computed<NavItem[]>(() => [
                   icon: Building2,
               },
               {
+                  title: 'Programs',
+                  href: '/quality/programs',
+                  icon: Layers3,
+              },
+              {
                   title: 'Academic Years',
                   href: '/quality/academic-years',
                   icon: CalendarRange,
@@ -141,6 +152,15 @@ const administrationNavItems = computed<NavItem[]>(() => [
         : []),
     ...(page.props.qualityProfile?.canManageQualityStructure ||
     page.props.qualityProfile?.canManageCourseAssignments
+        ? [
+              {
+                  title: 'Mount Courses',
+                  href: '/quality/course-offerings',
+                  icon: ListPlus,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canManageQualityStructure
         ? [
               {
                   title: 'Courses',
@@ -188,7 +208,10 @@ const footerNavItems: NavItem[] = [
                         as-child
                         class="h-18 p-0 hover:bg-transparent data-[active=true]:bg-transparent"
                     >
-                        <Link :href="dashboardUrl">
+                        <Link
+                            :href="dashboardUrl"
+                            @click="setOpenMobile(false)"
+                        >
                             <AppLogo />
                         </Link>
                     </SidebarMenuButton>
@@ -218,7 +241,10 @@ const footerNavItems: NavItem[] = [
                             :tooltip="item.title"
                             class="h-11 rounded-xl px-3 text-base font-semibold text-white/88 hover:bg-white/9 hover:text-white data-[active=true]:bg-[#0b3b22] data-[active=true]:text-white [&>svg]:size-5"
                         >
-                            <Link :href="item.href">
+                            <Link
+                                :href="item.href"
+                                @click="setOpenMobile(false)"
+                            >
                                 <component :is="item.icon" />
                                 <span>{{ item.title }}</span>
                             </Link>
@@ -242,12 +268,19 @@ const footerNavItems: NavItem[] = [
                             v-if="item.title === 'Sign out'"
                             type="button"
                             class="flex w-full items-center gap-2"
-                            @click="router.post('/logout')"
+                            @click="
+                                setOpenMobile(false);
+                                router.post('/logout');
+                            "
                         >
                             <component :is="item.icon" />
                             <span>{{ item.title }}</span>
                         </button>
-                        <Link v-else :href="item.href">
+                        <Link
+                            v-else
+                            :href="item.href"
+                            @click="setOpenMobile(false)"
+                        >
                             <component :is="item.icon" />
                             <span>{{ item.title }}</span>
                         </Link>

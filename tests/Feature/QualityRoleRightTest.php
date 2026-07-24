@@ -39,8 +39,8 @@ it('repairs stale system role rows instead of showing duplicate roles', function
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->has('roles', count(UniversityRole::cases()))
-            ->where('roles.3.value', UniversityRole::Dean->value)
-            ->where('roles.3.isSystem', true));
+            ->where('roles.5.value', UniversityRole::Dean->value)
+            ->where('roles.5.isSystem', true));
 
     $deanRole = QualityRolePermission::query()
         ->where('role', UniversityRole::Dean->value)
@@ -56,7 +56,7 @@ it('updates role rights and applies approval action access checks', function () 
 
     $this->actingAs($qaOfficer)
         ->get('/quality/approvals')
-        ->assertOk();
+        ->assertForbidden();
 
     $this->actingAs($admin)
         ->patch('/quality/roles-rights/'.UniversityRole::QaOfficer->value, [

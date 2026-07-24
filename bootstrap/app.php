@@ -1,6 +1,8 @@
 <?php
 
 use App\Actions\Teams\CreateTeam;
+use App\Http\Middleware\EnsureUserIsActive;
+use App\Http\Middleware\EnsurePasswordIsChanged;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RecordAuditLog;
@@ -33,6 +35,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             HandleAppearance::class,
+            EnsureUserIsActive::class,
+            EnsurePasswordIsChanged::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
             SetTeamUrlDefaults::class,

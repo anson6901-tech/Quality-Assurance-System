@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Quality;
 
+use App\Enums\UniversityRole;
 use App\Http\Controllers\Controller;
 use App\Models\AcademicYear;
 use App\Models\Course;
 use App\Models\Department;
+use App\Models\Program;
 use App\Models\QualityReport;
 use App\Models\QualityRolePermission;
 use App\Models\School;
@@ -13,6 +15,7 @@ use App\Models\Semester;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -27,12 +30,39 @@ class QualityReportController extends Controller
     {
         abort_unless($request->user()->canViewQualityReports(), 403);
 
+        if ($request->user()->canReviewQualityReports()) {
+            $filters = $this->validateReportFilters($request);
+
+            $reports = QualityReport::query()
+                ->whereIn('status', ['submitted', 'under_review', 'approved'])
+                ->tap(fn ($query) => $this->applyApprovalScope($query, $request->user()))
+                ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
+                ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
+                ->latest()
+                ->get()
+                ->map(fn (QualityReport $report) => $this->serializeReport($report));
+
+            return Inertia::render('quality/reports/Index', [
+                'reports' => $reports,
+                'canViewReports' => true,
+                'canUploadReports' => false,
+                'approvalQueue' => true,
+                'printQueue' => false,
+                'reviewStage' => 'supervisor',
+                'queueRoute' => route('quality.reports.index', absolute: false),
+                'canReviewReports' => true,
+                'canApproveReports' => false,
+                'filters' => $filters,
+                'filterOptions' => $this->reportFilterOptions(),
+            ]);
+        }
+
         $filters = $this->validateReportFilters($request, includeStatus: true);
 
         $reports = QualityReport::query()
             ->where('uploaded_by', $request->user()->id)
             ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
-            ->with(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name'])
+            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
             ->latest()
             ->get()
             ->map(fn (QualityReport $report) => $this->serializeReport($report));
@@ -43,6 +73,9 @@ class QualityReportController extends Controller
             'canUploadReports' => $request->user()->canUploadQualityReports(),
             'approvalQueue' => false,
             'printQueue' => false,
+            'reviewStage' => 'officer',
+            'queueRoute' => route('quality.reports.index', absolute: false),
+            'canReviewReports' => false,
             'canApproveReports' => false,
             'filters' => $filters,
             'filterOptions' => $this->reportFilterOptions(includeStatuses: true),
@@ -51,15 +84,15 @@ class QualityReportController extends Controller
 
     public function approvals(Request $request): Response
     {
-        abort_unless($this->canViewApprovalQueue($request), 403);
+        abort_unless($request->user()->canApproveQualityReports(), 403);
 
         $filters = $this->validateReportFilters($request);
 
         $reports = QualityReport::query()
-            ->whereIn('status', ['submitted', 'under_review', 'approved'])
+            ->whereIn('status', ['under_review', 'approved'])
             ->tap(fn ($query) => $this->applyApprovalScope($query, $request->user()))
             ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
-            ->with(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name'])
+            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
             ->latest()
             ->get()
             ->map(fn (QualityReport $report) => $this->serializeReport($report));
@@ -70,6 +103,9 @@ class QualityReportController extends Controller
             'canUploadReports' => $request->user()->canUploadQualityReports(),
             'approvalQueue' => true,
             'printQueue' => false,
+            'reviewStage' => 'director',
+            'queueRoute' => route('quality.reports.approvals', absolute: false),
+            'canReviewReports' => false,
             'canApproveReports' => $this->canApproveReports($request),
             'filters' => $filters,
             'filterOptions' => $this->reportFilterOptions(),
@@ -87,7 +123,7 @@ class QualityReportController extends Controller
             ->visibleTo($request->user())
             ->where('status', 'approved')
             ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
-            ->with(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name'])
+            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
             ->latest()
             ->get()
             ->map(fn (QualityReport $report) => $this->serializeReport($report));
@@ -98,6 +134,9 @@ class QualityReportController extends Controller
             'canUploadReports' => $request->user()->canUploadQualityReports(),
             'approvalQueue' => false,
             'printQueue' => true,
+            'reviewStage' => 'published',
+            'queueRoute' => route('quality.reports.print-queue', absolute: false),
+            'canReviewReports' => false,
             'canApproveReports' => false,
             'filters' => $filters,
             'filterOptions' => $canFilterReports ? $this->reportFilterOptions() : null,
@@ -117,45 +156,92 @@ class QualityReportController extends Controller
         $defaultAcademicYearId = $academicYears->first()?->id;
 
         $semesters = Semester::query()
-            ->where('academic_year_id', $defaultAcademicYearId)
+            ->whereIn('academic_year_id', $academicYears->pluck('id'))
+            ->orderBy('academic_year_id')
             ->orderBy('sequence')
             ->get(['id', 'name', 'academic_year_id']);
 
-        $defaultSemesterId = $semesters->first()?->id;
+        $defaultSemesterId = $semesters
+            ->firstWhere('academic_year_id', $defaultAcademicYearId)?->id;
+        $semesterIds = $semesters->pluck('id');
 
         $courseQuery = Course::query()
-            ->with('department:id,name,school_id')
-            ->with(['lecturers' => function ($query) use ($defaultSemesterId): void {
-                $this->scopeCourseLecturerAssignments($query, $defaultSemesterId);
-            }]);
-
-        if ($defaultSemesterId !== null) {
-            $courseQuery->whereHas('lecturers', fn ($query) => $this->scopeCourseLecturerAssignments($query, $defaultSemesterId));
-        } else {
-            $courseQuery->whereHas('lecturers');
-        }
+            ->with([
+                'department.school:id,name',
+                'offerings' => fn ($query) => $query
+                    ->whereIn('semester_id', $semesterIds)
+                    ->with('program:id,department_id,name,code'),
+            ])
+            ->with('lecturers')
+            ->with(['qualityReports' => fn ($query) => $query
+                ->where('uploaded_by', $request->user()->id)
+                ->whereIn('semester_id', $semesterIds)
+                ->with('reviews:id,quality_report_id,action,created_at')
+                ->latest()])
+            ->whereHas('lecturers');
 
         $courses = $courseQuery
             ->orderBy('code')
-            ->get(['id', 'department_id', 'code', 'title', 'level', 'credit_hours'])
-            ->map(fn (Course $course) => [
-                'id' => $course->id,
-                'code' => $course->code,
-                'title' => $course->title,
-                'level' => $course->level,
-                'creditHours' => $course->credit_hours,
-                'department' => $course->department ? [
-                    'id' => $course->department->id,
-                    'name' => $course->department->name,
-                    'schoolId' => $course->department->school_id,
-                ] : null,
-                'lecturerCount' => $course->lecturers->count(),
-                'lecturers' => $course->lecturers->map(fn (User $lecturer) => [
-                    'id' => $lecturer->id,
-                    'name' => $lecturer->name,
-                    'email' => $lecturer->email,
-                ]),
-            ]);
+            ->get(['id', 'department_id', 'code', 'title', 'course_type', 'level', 'credit_hours'])
+            ->flatMap(function (Course $course) {
+                $offerings = $course->offerings->isEmpty()
+                    ? collect([null])
+                    : $course->offerings;
+
+                return $offerings->map(function ($offering) use ($course) {
+                    $lecturers = $offering
+                        ? $course->lecturers
+                            ->where('pivot.program_id', $offering->program_id)
+                            ->where('pivot.semester_id', $offering->semester_id)
+                        : $course->lecturers;
+
+                    return [
+                        'offeringId' => $offering?->id,
+                        'id' => $course->id,
+                        'code' => $course->code,
+                        'title' => $course->title,
+                        'courseType' => $course->course_type,
+                        'program' => $offering?->program ? [
+                            'id' => $offering->program->id,
+                            'name' => $offering->program->name,
+                            'code' => $offering->program->code,
+                        ] : null,
+                        'level' => $offering?->level ?? $course->level,
+                        'creditHours' => $course->credit_hours,
+                        'department' => $course->department ? [
+                            'id' => $course->department->id,
+                            'name' => $course->department->name,
+                            'schoolId' => $course->department->school_id,
+                            'school' => $course->department->school ? [
+                                'id' => $course->department->school->id,
+                                'name' => $course->department->school->name,
+                            ] : null,
+                        ] : null,
+                        'lecturerCount' => $lecturers->count(),
+                        'lecturers' => $lecturers
+                            ->map(fn (User $lecturer) => [
+                                'id' => $lecturer->id,
+                                'name' => $lecturer->name,
+                                'email' => $lecturer->email,
+                                'semesterId' => $lecturer->pivot->semester_id,
+                            ])->values(),
+                        'reports' => $course->qualityReports
+                            ->where('program_id', $offering?->program_id)
+                            ->map(fn (QualityReport $report) => [
+                                'id' => $report->id,
+                                'lecturerId' => $report->lecturer_id,
+                                'semesterId' => $report->semester_id,
+                                'title' => $report->title,
+                                'status' => $report->status,
+                                'uploadedAt' => $report->created_at->toIso8601String(),
+                                'pushedAt' => $report->reviews
+                                    ->firstWhere('action', 'submitted_to_supervisor')
+                                    ?->created_at
+                                    ?->toIso8601String(),
+                            ])->values(),
+                    ];
+                });
+            });
 
         $departments = Department::query()
             ->orderBy('name')
@@ -189,7 +275,21 @@ class QualityReportController extends Controller
                 Rule::exists('academic_years', 'id')->where('status', 'active'),
             ],
             'semester_id' => ['nullable', 'integer', Rule::exists('semesters', 'id')],
+            'program_id' => [
+                Rule::excludeIf(count((array) $request->input('program_ids', [])) > 0),
+                'nullable',
+                'integer',
+                Rule::exists('programs', 'id'),
+            ],
+            'program_ids' => [
+                Rule::excludeIf($request->filled('program_id')),
+                'nullable',
+                'array',
+                'min:1',
+            ],
+            'program_ids.*' => ['integer', 'distinct', Rule::exists('programs', 'id')],
             'summary' => ['nullable', 'string'],
+            'lecturer_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
             'course_ids' => ['required', 'array', 'min:1'],
             'course_ids.*' => ['integer', Rule::exists('courses', 'id')],
             'report_file' => ['nullable', 'file', 'mimes:pdf', 'max:10240'],
@@ -212,76 +312,112 @@ class QualityReportController extends Controller
             abort_unless($semesterId && Semester::query()->whereKey($semesterId)->where('academic_year_id', $validated['academic_year_id'])->exists(), 422);
         }
 
+        $filePaths = [];
+
         try {
-            $courses = Course::query()
-                ->whereIn('id', $validated['course_ids'])
-                ->with(['lecturers' => function ($query) use ($semesterId): void {
-                    $this->scopeCourseLecturerAssignments($query, $semesterId);
-                }])
-                ->get(['id', 'department_id']);
+            $programIds = collect(
+                $validated['program_ids']
+                    ?? (isset($validated['program_id']) ? [$validated['program_id']] : [null])
+            )
+                ->map(fn ($programId) => $programId === null ? null : (int) $programId)
+                ->unique()
+                ->values();
+            $contexts = [];
 
-            Log::debug('QualityReportController::store loaded courses', [
-                'courseIds' => $courses->pluck('id')->all(),
+            foreach ($programIds as $programId) {
+                $courses = Course::query()
+                    ->whereIn('id', $validated['course_ids'])
+                    ->with(['lecturers' => function ($query) use ($semesterId, $programId): void {
+                        $this->scopeCourseLecturerAssignments($query, $semesterId);
+                        if ($programId !== null) {
+                            $query->where('course_lecturer.program_id', $programId);
+                        }
+                    }])
+                    ->get(['id', 'department_id']);
+
+                abort_unless($courses->count() === count(array_unique($validated['course_ids'])), 422);
+
+                $program = $programId === null
+                    ? null
+                    : Program::query()
+                        ->with('department.school:id')
+                        ->findOrFail($programId);
+                $department = $program?->department
+                    ?? Department::query()->with('school:id')->findOrFail($courses->first()->department_id);
+
+                if ($courses->contains(fn (Course $course) => $course->lecturers->isEmpty())) {
+                    throw ValidationException::withMessages([
+                        'course_ids' => __('Select only courses with assigned lecturers in every selected program.'),
+                    ]);
+                }
+
+                $commonLecturerIds = $courses->reduce(function ($common, Course $course) {
+                    return $common === null
+                        ? $course->lecturers->pluck('id')
+                        : $common->intersect($course->lecturers->pluck('id'));
+                }, null)->unique();
+
+                $lecturerId = isset($validated['lecturer_id'])
+                    ? (int) $validated['lecturer_id']
+                    : (int) $commonLecturerIds->sole();
+
+                if (! $commonLecturerIds->contains($lecturerId)) {
+                    throw ValidationException::withMessages([
+                        'lecturer_id' => __('The selected lecturer must be assigned to every selected program offering.'),
+                    ]);
+                }
+
+                $filePath = $request->file('report_file')?->store('quality-reports', 'public');
+                if ($filePath !== null) {
+                    $filePaths[] = $filePath;
+                }
+
+                $contexts[] = [
+                    'program' => $program,
+                    'department' => $department,
+                    'lecturer' => User::query()->findOrFail($lecturerId),
+                    'courses' => $courses,
+                    'filePath' => $filePath,
+                ];
+            }
+
+            DB::transaction(function () use ($validated, $semesterId, $contexts, $request): void {
+                foreach ($contexts as $context) {
+                    $report = QualityReport::create([
+                        'title' => $validated['title'],
+                        'category' => $validated['category'],
+                        'status' => 'draft',
+                        'academic_year_id' => $validated['academic_year_id'],
+                        'semester_id' => $semesterId,
+                        'summary' => $validated['summary'] ?? null,
+                        'school_id' => $context['department']->school_id,
+                        'department_id' => $context['department']->id,
+                        'program_id' => $context['program']?->id,
+                        'lecturer_id' => $context['lecturer']->id,
+                        'file_path' => $context['filePath'],
+                        'uploaded_by' => $request->user()->id,
+                    ]);
+
+                    $report->courses()->sync($context['courses']->pluck('id'));
+                    $this->recordReview($report, $request->user(), 'uploaded', null);
+                }
+            });
+
+            Inertia::flash('toast', [
+                'type' => 'success',
+                'message' => trans_choice(
+                    '{1} Report uploaded as a draft.|[2,*] :count program reports uploaded as drafts.',
+                    count($contexts),
+                    ['count' => count($contexts)],
+                ),
             ]);
 
-            abort_unless($courses->count() === count(array_unique($validated['course_ids'])), 422);
-
-            $departmentIds = $courses->pluck('department_id')->unique();
-
-            if ($departmentIds->count() !== 1) {
-                throw ValidationException::withMessages([
-                    'course_ids' => __('Select courses from one department for each report.'),
-                ]);
-            }
-
-            if ($courses->contains(fn (Course $course) => $course->lecturers->isEmpty())) {
-                throw ValidationException::withMessages([
-                    'course_ids' => __('Select only courses with assigned lecturers.'),
-                ]);
-            }
-
-            $commonLecturerIds = $courses->reduce(function ($common, Course $course) {
-                return $common === null
-                    ? $course->lecturers->pluck('id')
-                    : $common->intersect($course->lecturers->pluck('id'));
-            }, null)->unique();
-
-            if ($commonLecturerIds->count() !== 1) {
-                throw ValidationException::withMessages([
-                    'course_ids' => __('Selected courses must map to a single lecturer. Upload reports separately for each lecturer if a course has multiple assigned lecturers.'),
-                ]);
-            }
-
-            $lecturer = User::query()
-                ->whereKey($commonLecturerIds->first())
-                ->firstOrFail();
-
-            $department = Department::query()
-                ->with('school:id')
-                ->findOrFail($departmentIds->first());
-
-            $filePath = $request->file('report_file')?->store('quality-reports', 'public');
-
-            $report = QualityReport::create([
-                'title' => $validated['title'],
-                'category' => $validated['category'],
-                'status' => 'submitted',
-                'academic_year_id' => $validated['academic_year_id'],
-                'semester_id' => $semesterId,
-                'summary' => $validated['summary'] ?? null,
-                'school_id' => $department->school_id,
-                'department_id' => $department->id,
-                'lecturer_id' => $lecturer->id,
-                'file_path' => $filePath,
-                'uploaded_by' => $request->user()->id,
-            ]);
-
-            $report->courses()->sync($courses->pluck('id'));
-
-            Inertia::flash('toast', ['type' => 'success', 'message' => __('Quality report uploaded.')]);
-
-            return to_route('quality.reports.index');
+            return to_route('quality.reports.create');
         } catch (\Throwable $exception) {
+            foreach ($filePaths as $filePath) {
+                Storage::disk('public')->delete($filePath);
+            }
+
             Log::error('QualityReportController::store failed', [
                 'exception' => $exception->getMessage(),
                 'trace' => $exception->getTraceAsString(),
@@ -295,13 +431,57 @@ class QualityReportController extends Controller
     {
         abort_unless($request->user()->canUploadQualityReports(), 403);
         abort_unless($report->uploaded_by === $request->user()->id, 403);
-        abort_unless(in_array($report->status, ['draft', 'submitted'], true), 409);
+        abort_unless($report->status === 'draft', 409);
 
-        $report->update(['status' => 'under_review']);
+        DB::transaction(function () use ($request, $report): void {
+            $report->update(['status' => 'submitted']);
+            $this->recordReview($report, $request->user(), 'submitted_to_supervisor', null);
+        });
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report pushed for approval.')]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report submitted to the QA Supervisor.')]);
 
-        return to_route('quality.reports.approvals');
+        return to_route('quality.reports.index');
+    }
+
+    public function pushSelected(Request $request): RedirectResponse
+    {
+        abort_unless($request->user()->canUploadQualityReports(), 403);
+
+        $validated = $request->validate([
+            'report_ids' => ['required', 'array', 'min:1'],
+            'report_ids.*' => ['integer', 'distinct', 'exists:quality_reports,id'],
+        ]);
+
+        $reports = QualityReport::query()
+            ->whereIn('id', $validated['report_ids'])
+            ->get();
+
+        abort_unless($reports->count() === count($validated['report_ids']), 404);
+        abort_unless(
+            $reports->every(
+                fn (QualityReport $report): bool => $report->uploaded_by === $request->user()->id
+                    && $report->status === 'draft'
+            ),
+            403
+        );
+
+        DB::transaction(function () use ($request, $reports): void {
+            foreach ($reports as $report) {
+                $report->update(['status' => 'submitted']);
+                $this->recordReview($report, $request->user(), 'submitted_to_supervisor', null);
+            }
+        });
+
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => trans_choice(
+                '{1} One report submitted to the QA Supervisor.|[2,*] :count reports submitted to the QA Supervisor.',
+                $reports->count(),
+                ['count' => $reports->count()]
+            ),
+        ]);
+
+        return to_route('quality.reports.create');
     }
 
     public function approve(Request $request, QualityReport $report): RedirectResponse
@@ -309,23 +489,83 @@ class QualityReportController extends Controller
         abort_unless($this->canManageApprovalReport($request, $report), 403);
         abort_unless(in_array($report->status, ['submitted', 'under_review'], true), 409);
 
-        $report->update(['status' => 'approved']);
+        DB::transaction(function () use ($request, $report): void {
+            $report->update(['status' => 'approved']);
+            $this->recordReview($report, $request->user(), 'published', $request->string('note')->toString() ?: null);
+        });
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report approved and sent to print queue.')]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report published to the lecturer and school dean.')]);
 
         return $this->approvalRedirect($request, 'quality.reports.print-queue');
     }
 
+    public function forwardToDirector(Request $request, QualityReport $report): RedirectResponse
+    {
+        abort_unless($request->user()->canReviewQualityReports(), 403);
+        abort_unless($this->approvalScopedReportExists($request, $report), 403);
+        abort_unless($report->status === 'submitted', 409);
+
+        $validated = $request->validate([
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        DB::transaction(function () use ($request, $report, $validated): void {
+            $report->update(['status' => 'under_review']);
+            $this->recordReview(
+                $report,
+                $request->user(),
+                'forwarded_to_director',
+                $validated['note'] ?? null,
+            );
+        });
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report forwarded to the QA Director.')]);
+
+        return to_route('quality.reports.index');
+    }
+
     public function returnToOfficer(Request $request, QualityReport $report): RedirectResponse
     {
-        abort_unless($this->canManageApprovalReport($request, $report), 403);
+        abort_unless(
+            $request->user()->canReviewQualityReports()
+                || $this->canManageApprovalReport($request, $report),
+            403,
+        );
+        abort_unless($this->approvalScopedReportExists($request, $report), 403);
         abort_unless(in_array($report->status, ['submitted', 'under_review'], true), 409);
 
-        $report->update(['status' => 'submitted']);
+        $validated = $request->validate([
+            'note' => ['required', 'string', 'max:2000'],
+        ]);
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Report pushed back to the QA officer.')]);
+        $action = $request->user()->canApproveQualityReports()
+            ? 'returned_to_supervisor'
+            : 'returned_to_officer';
+        $status = $action === 'returned_to_officer' ? 'draft' : 'submitted';
 
-        return $this->approvalRedirect($request, 'quality.reports.approvals');
+        DB::transaction(function () use ($request, $report, $validated, $action, $status): void {
+            $report->update(['status' => $status]);
+            $this->recordReview(
+                $report,
+                $request->user(),
+                $action,
+                $validated['note'] ?? null,
+            );
+        });
+
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => $action === 'returned_to_officer'
+                ? __('Report returned to the QA officer.')
+                : __('Report returned to the QA supervisor.'),
+        ]);
+
+        return $this->approvalRedirect(
+            $request,
+            $action === 'returned_to_officer'
+                ? 'quality.reports.index'
+                : 'quality.reports.approvals',
+        );
     }
 
     public function unapprove(Request $request, QualityReport $report): RedirectResponse
@@ -333,7 +573,19 @@ class QualityReportController extends Controller
         abort_unless($this->canManageApprovalReport($request, $report), 403);
         abort_unless($report->status === 'approved', 409);
 
-        $report->update(['status' => 'under_review']);
+        $validated = $request->validate([
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        DB::transaction(function () use ($request, $report, $validated): void {
+            $report->update(['status' => 'under_review']);
+            $this->recordReview(
+                $report,
+                $request->user(),
+                'unapproved',
+                $validated['note'] ?? null,
+            );
+        });
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Report unapproved and removed from print queue.')]);
 
@@ -345,12 +597,19 @@ class QualityReportController extends Controller
         abort_unless($this->canManageApprovalReport($request, $report), 403);
         abort_unless(in_array($report->status, ['submitted', 'under_review'], true), 409);
 
-        if ($report->file_path) {
-            Storage::disk('public')->delete($report->file_path);
-        }
+        $validated = $request->validate([
+            'note' => ['required', 'string', 'max:2000'],
+        ]);
 
-        $report->courses()->detach();
-        $report->delete();
+        DB::transaction(function () use ($request, $report, $validated): void {
+            $this->recordReview($report, $request->user(), 'deleted', $validated['note']);
+
+            if ($report->file_path) {
+                Storage::disk('public')->delete($report->file_path);
+            }
+
+            $report->delete();
+        });
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Report deleted.')]);
 
@@ -361,7 +620,7 @@ class QualityReportController extends Controller
     {
         abort_unless($this->canViewReport($request, $report), 403);
 
-        $report->load(['academicYear:id,name,status', 'school:id,name', 'department:id,name', 'lecturer:id,name,email', 'courses:id,code,title', 'uploader:id,name,email']);
+        $report->load(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name,email', 'reviews.actor:id,name']);
 
         return Inertia::render('quality/reports/Show', [
             'report' => $this->serializeReport($report, includeDetails: true),
@@ -404,8 +663,8 @@ class QualityReportController extends Controller
         }
 
         $query->where(function ($query) use ($semesterId): void {
-            $query->wherePivot('semester_id', $semesterId)
-                ->orWhereNull('semester_id');
+            $query->where('course_lecturer.semester_id', $semesterId)
+                ->orWhereNull('course_lecturer.semester_id');
         });
     }
 
@@ -421,6 +680,10 @@ class QualityReportController extends Controller
                 'name' => $report->academicYear->name,
                 'status' => $report->academicYear->status,
             ] : null,
+            'semester' => $report->semester ? [
+                'id' => $report->semester->id,
+                'name' => $report->semester->name,
+            ] : null,
             'summary' => $includeDetails ? $report->summary : str($report->summary ?? '')->limit(140)->toString(),
             'filePath' => $report->file_path,
             'fileUrl' => $report->file_path ? route('quality.reports.file', $report) : null,
@@ -433,6 +696,11 @@ class QualityReportController extends Controller
             },
             'school' => $report->school ? ['id' => $report->school->id, 'name' => $report->school->name] : null,
             'department' => $report->department ? ['id' => $report->department->id, 'name' => $report->department->name] : null,
+            'program' => $report->program ? [
+                'id' => $report->program->id,
+                'name' => $report->program->name,
+                'code' => $report->program->code,
+            ] : null,
             'lecturer' => $report->lecturer ? [
                 'id' => $report->lecturer->id,
                 'name' => $report->lecturer->name,
@@ -442,14 +710,24 @@ class QualityReportController extends Controller
                 'id' => $course->id,
                 'code' => $course->code,
                 'title' => $course->title,
+                'level' => $course->level,
             ]),
             'uploader' => $report->uploader ? [
                 'id' => $report->uploader->id,
                 'name' => $report->uploader->name,
                 'email' => $includeDetails ? $report->uploader->email : null,
             ] : null,
+            'reviews' => $includeDetails
+                ? $report->reviews->map(fn ($review) => [
+                    'id' => $review->id,
+                    'action' => $review->action,
+                    'note' => $review->note,
+                    'actor' => $review->actor?->name,
+                    'createdAt' => $review->created_at->toFormattedDateString(),
+                ])
+                : [],
             'createdAt' => $report->created_at->toFormattedDateString(),
-            'isLocked' => ! in_array($report->status, ['draft', 'submitted'], true),
+            'isLocked' => $report->status !== 'draft',
         ];
     }
 
@@ -457,18 +735,24 @@ class QualityReportController extends Controller
     {
         return $request->user()->canUploadQualityReports()
             && $report->uploaded_by === $request->user()->id
-            && in_array($report->status, ['draft', 'submitted'], true);
+            && $report->status === 'draft';
     }
 
     private function canViewReport(Request $request, QualityReport $report): bool
     {
+        if ($report->uploaded_by === $request->user()->id && $report->status !== 'approved') {
+            return true;
+        }
+
         if (in_array($report->status, ['draft', 'submitted'], true)) {
-            return $report->uploaded_by === $request->user()->id
-                || $this->canManageApprovalReport($request, $report);
+            return ($request->user()->canReviewQualityReports()
+                    || $request->user()->canApproveQualityReports())
+                && $this->approvalScopedReportExists($request, $report);
         }
 
         if ($report->status === 'under_review') {
-            return $this->canViewApprovalReport($request, $report);
+            return $request->user()->canApproveQualityReports()
+                && $this->approvalScopedReportExists($request, $report);
         }
 
         return QualityReport::query()
@@ -482,9 +766,13 @@ class QualityReportController extends Controller
         return $request->user()->canApproveQualityReports();
     }
 
-    private function canViewApprovalQueue(Request $request): bool
+    private function recordReview(QualityReport $report, User $actor, string $action, ?string $note): void
     {
-        return $request->user()->canViewApprovalQueue();
+        $report->reviews()->create([
+            'actor_id' => $actor->id,
+            'action' => $action,
+            'note' => $note,
+        ]);
     }
 
     private function approvalRedirect(Request $request, string $fallback): RedirectResponse
@@ -492,12 +780,6 @@ class QualityReportController extends Controller
         return $request->boolean('from_course_assignments')
             ? to_route('quality.course-assignments.index')
             : to_route($fallback);
-    }
-
-    private function canViewApprovalReport(Request $request, QualityReport $report): bool
-    {
-        return $this->canViewApprovalQueue($request)
-            && $this->approvalScopedReportExists($request, $report);
     }
 
     private function canManageApprovalReport(Request $request, QualityReport $report): bool
@@ -508,7 +790,15 @@ class QualityReportController extends Controller
 
     private function canFilterReports(Request $request): bool
     {
-        return ! QualityRolePermission::roleHas($request->user()->university_role, 'view_own_reports');
+        $role = $request->user()->university_role;
+
+        if (in_array($role, [UniversityRole::Hod->value, UniversityRole::Lecturer->value], true)) {
+            return false;
+        }
+
+        return QualityRolePermission::roleHas($role, 'view_all_reports')
+            || QualityRolePermission::roleHas($role, 'view_department_reports')
+            || QualityRolePermission::roleHas($role, 'view_school_reports');
     }
 
     private function approvalScopedReportExists(Request $request, QualityReport $report): bool
@@ -530,6 +820,8 @@ class QualityReportController extends Controller
             'semester_id' => ['nullable', 'integer', Rule::exists('semesters', 'id')],
             'school_id' => ['nullable', 'integer', Rule::exists('schools', 'id')],
             'department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')],
+            'program_id' => ['nullable', 'integer', Rule::exists('programs', 'id')],
+            'level' => ['nullable', 'string', 'regex:/^[1-9][0-9]*00$/'],
         ];
 
         if ($includeStatus) {
@@ -566,6 +858,11 @@ class QualityReportController extends Controller
                             ->where('department_id', $departmentId);
                     });
             }))
+            ->when($filters['program_id'] ?? null, fn ($query, $programId) => $query->where('program_id', $programId))
+            ->when($filters['level'] ?? null, fn ($query, $level) => $query->whereHas(
+                'courses',
+                fn ($query) => $query->where('level', $level),
+            ))
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status));
     }
 
@@ -648,6 +945,24 @@ class QualityReportController extends Controller
                     'id' => $department->id,
                     'schoolId' => $department->school_id,
                     'name' => $department->name,
+                ]),
+            'programs' => Program::query()
+                ->orderBy('name')
+                ->get(['id', 'department_id', 'name', 'code'])
+                ->map(fn (Program $program) => [
+                    'id' => $program->id,
+                    'departmentId' => $program->department_id,
+                    'name' => $program->name,
+                    'code' => $program->code,
+                ]),
+            'levels' => Course::query()
+                ->whereNotNull('level')
+                ->distinct()
+                ->orderByRaw('CAST(level AS INTEGER)')
+                ->pluck('level')
+                ->map(fn (string $level) => [
+                    'id' => $level,
+                    'name' => "Level {$level}",
                 ]),
         ];
 

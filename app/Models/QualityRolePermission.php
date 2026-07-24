@@ -33,6 +33,7 @@ class QualityRolePermission extends Model
             'view_reports' => 'View the report module',
             'upload_reports' => 'Upload lecturer evaluation reports',
             'view_approval_queue' => 'View reports waiting for approval',
+            'review_reports' => 'Review reports as a QA supervisor',
             'approve_reports' => 'Approve and unapprove reports',
             'view_all_reports' => 'View all approved reports',
             'view_school_reports' => 'View approved reports in assigned school',
@@ -49,12 +50,28 @@ class QualityRolePermission extends Model
     public static function defaults(): array
     {
         return [
-            UniversityRole::QaOfficer->value => ['view_reports', 'upload_reports', 'view_approval_queue'],
+            UniversityRole::QaOfficer->value => ['view_reports', 'upload_reports'],
+            UniversityRole::QaSupervisor->value => ['view_reports', 'view_approval_queue', 'review_reports'],
             UniversityRole::QaDirector->value => ['manage_users', 'manage_structure', 'view_reports', 'upload_reports', 'view_approval_queue', 'approve_reports', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
             UniversityRole::UploadOnly->value => ['view_reports', 'upload_reports'],
-            UniversityRole::IctAdmin->value => ['manage_users', 'manage_structure', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
-            UniversityRole::Dean->value => ['view_school_reports', 'view_approval_queue', 'view_print_queue'],
-            UniversityRole::Hod->value => ['manage_course_assignments'],
+            UniversityRole::IctAdmin->value => [
+                'manage_users',
+                'manage_structure',
+                'manage_course_assignments',
+                'view_reports',
+                'upload_reports',
+                'view_approval_queue',
+                'review_reports',
+                'approve_reports',
+                'view_all_reports',
+                'view_school_reports',
+                'view_department_reports',
+                'view_own_reports',
+                'view_print_queue',
+                'view_audit_logs',
+            ],
+            UniversityRole::Dean->value => ['view_school_reports', 'view_own_reports', 'view_print_queue'],
+            UniversityRole::Hod->value => ['manage_course_assignments', 'view_own_reports', 'view_print_queue'],
             UniversityRole::Lecturer->value => ['view_own_reports', 'view_print_queue'],
             UniversityRole::AppointmentCommittee->value => ['view_all_reports', 'view_print_queue'],
         ];
@@ -76,7 +93,7 @@ class QualityRolePermission extends Model
             [
                 'label' => 'Approvals',
                 'description' => 'View reports waiting for review and approve them',
-                'permissions' => ['view_approval_queue', 'approve_reports'],
+                'permissions' => ['view_approval_queue', 'review_reports', 'approve_reports'],
             ],
             [
                 'label' => 'Print Queue',
