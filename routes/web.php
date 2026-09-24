@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Quality\AcademicYearController;
 use App\Http\Controllers\Quality\AuditLogController;
 use App\Http\Controllers\Quality\BulkStructureController;
@@ -7,8 +8,9 @@ use App\Http\Controllers\Quality\CourseAssignmentController;
 use App\Http\Controllers\Quality\CourseController;
 use App\Http\Controllers\Quality\CourseOfferingController;
 use App\Http\Controllers\Quality\DepartmentController;
-use App\Http\Controllers\Quality\QualityReportController;
+use App\Http\Controllers\Quality\MyCourseController;
 use App\Http\Controllers\Quality\ProgramController;
+use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\RoleRightController;
 use App\Http\Controllers\Quality\SchoolController;
 use App\Http\Controllers\Quality\UserController;
@@ -21,7 +23,7 @@ Route::redirect('/', '/login')->name('home');
 Route::prefix('{current_team}')
     ->middleware(['auth', 'verified', EnsureTeamMembership::class])
     ->group(function () {
-        Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+        Route::get('dashboard', DashboardController::class)->name('dashboard');
     });
 
 Route::middleware(['auth'])->group(function () {
@@ -41,6 +43,7 @@ Route::middleware(['auth', 'verified'])
         Route::get('reports/create', [QualityReportController::class, 'create'])->name('reports.create');
         Route::post('reports', [QualityReportController::class, 'store'])->name('reports.store');
         Route::post('reports/push-selected', [QualityReportController::class, 'pushSelected'])->name('reports.push-selected');
+        Route::post('reports/forward-selected', [QualityReportController::class, 'forwardSelected'])->name('reports.forward-selected');
         Route::post('reports/{report}/push', [QualityReportController::class, 'push'])->name('reports.push');
         Route::post('reports/{report}/forward', [QualityReportController::class, 'forwardToDirector'])->name('reports.forward');
         Route::post('reports/{report}/approve', [QualityReportController::class, 'approve'])->name('reports.approve');
@@ -78,6 +81,7 @@ Route::middleware(['auth', 'verified'])
         Route::post('course-offerings/copy', [CourseOfferingController::class, 'copy'])->name('course-offerings.copy');
         Route::get('course-assignments', [CourseAssignmentController::class, 'index'])->name('course-assignments.index');
         Route::put('course-assignments/{course}/lecturers', [CourseAssignmentController::class, 'sync'])->name('course-assignments.sync');
+        Route::get('my-courses', [MyCourseController::class, 'index'])->name('my-courses.index');
 
         Route::get('academic-years', [AcademicYearController::class, 'index'])->name('academic-years.index');
         Route::post('academic-years', [AcademicYearController::class, 'store'])->name('academic-years.store');

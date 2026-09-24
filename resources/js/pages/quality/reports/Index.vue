@@ -15,6 +15,7 @@ import {
 } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import Heading from '@/components/Heading.vue';
+import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -132,6 +133,12 @@ type WorkflowAction = 'forward' | 'return' | 'publish' | 'unapprove' | 'delete';
 const workflowTarget = ref<QualityReport | null>(null);
 const workflowAction = ref<WorkflowAction | null>(null);
 const workflowForm = useForm({ note: '' });
+const selectedReportIds = ref<number[]>([]);
+const bulkForwardOpen = ref(false);
+const bulkForwardForm = useForm({
+    report_ids: [] as number[],
+    note: '',
+});
 
 const workflowCopy = computed(() => {
     const copy = {
@@ -219,9 +226,13 @@ const submitWorkflow = () => {
 };
 
 const lecturerSearch = ref('');
-const splitReportGroups = ref<string[]>([]);
 
 const activeFilters = computed<ReportFilters>(() => props.filters ?? {});
+const { isCourseSplitForPeriod, toggleCourseSplitForPeriod } =
+    useCourseOfferingSplits(
+        () => activeFilters.value.academic_year_id,
+        () => activeFilters.value.semester_id,
+    );
 
 type ReportRow = QualityReport & {
     groupKey: string;
@@ -229,7 +240,7 @@ type ReportRow = QualityReport & {
 };
 
 const reportGroupKey = (report: QualityReport) =>
-    `${report.courses[0]?.code ?? report.id}:${report.lecturer?.id ?? 'none'}`;
+    `${report.courses[0]?.code ?? report.id}:${report.academicYear?.id ?? 'no-year'}:${report.semester?.id ?? 'no-semester'}`;
 
 const reportRows = computed<ReportRow[]>(() => {
     if (props.reviewStage === 'officer') {
@@ -255,17 +266,67 @@ const reportRows = computed<ReportRow[]>(() => {
     }));
 });
 
-const toggleReportSplit = (groupKey: string) => {
-    splitReportGroups.value = splitReportGroups.value.includes(groupKey)
-        ? splitReportGroups.value.filter((key) => key !== groupKey)
-        : [...splitReportGroups.value, groupKey];
-};
+const isReportGroupSplit = (row: ReportRow) =>
+    isCourseSplitForPeriod(
+        row.courses[0]?.code ?? String(row.id),
+        row.academicYear?.id,
+        row.semester?.id,
+    );
+
+const toggleReportSplit = (row: ReportRow) =>
+    toggleCourseSplitForPeriod(
+        row.courses[0]?.code ?? String(row.id),
+        row.academicYear?.id,
+        row.semester?.id,
+    );
 
 const visibleReportVariants = (row: ReportRow) =>
-    row.variants.length === 1 ||
-    splitReportGroups.value.includes(row.groupKey)
-        ? row.variants
-        : [];
+    row.variants.length === 1 || isReportGroupSplit(row) ? row.variants : [];
+
+const forwardableReportIds = computed(() =>
+    props.reports
+        .filter((report) => report.status === 'submitted')
+        .map((report) => report.id),
+);
+const allForwardableSelected = computed(
+    () =>
+        forwardableReportIds.value.length > 0 &&
+        forwardableReportIds.value.every((id) =>
+            selectedReportIds.value.includes(id),
+        ),
+);
+const toggleAllForwardable = () => {
+    selectedReportIds.value = allForwardableSelected.value
+        ? []
+        : [...forwardableReportIds.value];
+};
+const toggleForwardSelection = (reportId: number) => {
+    selectedReportIds.value = selectedReportIds.value.includes(reportId)
+        ? selectedReportIds.value.filter((id) => id !== reportId)
+        : [...selectedReportIds.value, reportId];
+};
+const openBulkForward = (reportIds = selectedReportIds.value) => {
+    if (reportIds.length === 0) return;
+
+    bulkForwardForm.report_ids = [...reportIds];
+    bulkForwardForm.note = '';
+    bulkForwardForm.clearErrors();
+    bulkForwardOpen.value = true;
+};
+const submitBulkForward = () => {
+    bulkForwardForm.post('/quality/reports/forward-selected', {
+        preserveScroll: true,
+        onSuccess: () => {
+            selectedReportIds.value = [];
+            bulkForwardOpen.value = false;
+            bulkForwardForm.reset();
+        },
+    });
+};
+const forwardableIdsForRow = (row: ReportRow) =>
+    row.variants
+        .filter((variant) => variant.status === 'submitted')
+        .map((variant) => variant.id);
 
 const selectedLecturerLabel = computed(() => {
     const selectedLecturerId = activeFilters.value.lecturer_id
@@ -397,7 +458,7 @@ defineOptions({
 
         <div
             v-if="filterOptions"
-            class="grid gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-5 shadow-sm ring-1 ring-[#007a2f]/10 md:grid-cols-5"
+            class="grid gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-5 shadow-sm ring-1 ring-[#007a2f]/10 md:grid-cols-5 lg:sticky lg:top-24 lg:z-10"
         >
             <DropdownMenu>
                 <DropdownMenuTrigger as-child>
@@ -598,6 +659,36 @@ defineOptions({
             </Button>
         </div>
 
+        <div
+            v-if="reviewStage === 'supervisor' && forwardableReportIds.length"
+            class="flex flex-col gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+            <label
+                class="flex items-center gap-3 text-sm font-medium text-[#063f22]"
+            >
+                <input
+                    type="checkbox"
+                    class="h-4 w-4 accent-[#007a2f]"
+                    :checked="allForwardableSelected"
+                    @change="toggleAllForwardable"
+                />
+                Select all submitted reports
+                <span class="font-normal text-muted-foreground">
+                    ({{ selectedReportIds.length }} selected)
+                </span>
+            </label>
+            <Button
+                type="button"
+                size="sm"
+                class="bg-[#007a2f] text-white hover:bg-[#006428]"
+                :disabled="selectedReportIds.length === 0"
+                @click="openBulkForward()"
+            >
+                <Check class="h-4 w-4" />
+                Forward selected to Director
+            </Button>
+        </div>
+
         <div class="space-y-4">
             <article
                 v-for="(report, reportIndex) in reportRows"
@@ -647,7 +738,15 @@ defineOptions({
                             Lecturer
                         </div>
                         <div class="truncate text-sm font-medium">
-                            {{ report.lecturer?.name ?? 'Not assigned' }}
+                            {{
+                                new Set(
+                                    report.variants.map(
+                                        (variant) => variant.lecturer?.id,
+                                    ),
+                                ).size > 1
+                                    ? `${new Set(report.variants.map((variant) => variant.lecturer?.id)).size} lecturers`
+                                    : (report.lecturer?.name ?? 'Not assigned')
+                            }}
                         </div>
                     </div>
                     <Badge
@@ -656,7 +755,9 @@ defineOptions({
                     >
                         {{
                             new Set(
-                                report.variants.map((variant) => variant.status),
+                                report.variants.map(
+                                    (variant) => variant.status,
+                                ),
                             ).size > 1
                                 ? 'Mixed status'
                                 : report.status
@@ -683,7 +784,7 @@ defineOptions({
                             <div
                                 v-if="
                                     report.variants.length > 1 &&
-                                    !splitReportGroups.includes(report.groupKey)
+                                    !isReportGroupSplit(report)
                                 "
                                 class="flex items-center justify-between gap-4 bg-[#fbfdfe] px-4 py-5"
                             >
@@ -695,8 +796,8 @@ defineOptions({
                                     <div
                                         class="mt-1 text-xs text-muted-foreground"
                                     >
-                                        Split this course to review each
-                                        program report and its workflow actions.
+                                        Split this course to review each program
+                                        report and its workflow actions.
                                     </div>
                                 </div>
                                 <Split class="h-5 w-5 text-[#087036]" />
@@ -726,9 +827,7 @@ defineOptions({
                                     <div class="truncate">
                                         {{ variant.department?.name ?? '—' }}
                                     </div>
-                                    <div
-                                        class="truncate text-muted-foreground"
-                                    >
+                                    <div class="truncate text-muted-foreground">
                                         {{
                                             variant.academicYear?.name ??
                                             'No year'
@@ -743,6 +842,23 @@ defineOptions({
                                     <div>{{ variant.location }}</div>
                                 </div>
                                 <div class="flex flex-wrap justify-end gap-2">
+                                    <input
+                                        v-if="
+                                            reviewStage === 'supervisor' &&
+                                            variant.status === 'submitted'
+                                        "
+                                        type="checkbox"
+                                        class="h-4 w-4 self-center accent-[#007a2f]"
+                                        :aria-label="`Select ${variant.title}`"
+                                        :checked="
+                                            selectedReportIds.includes(
+                                                variant.id,
+                                            )
+                                        "
+                                        @change="
+                                            toggleForwardSelection(variant.id)
+                                        "
+                                    />
                                     <Button
                                         v-if="
                                             approvalQueue &&
@@ -751,7 +867,9 @@ defineOptions({
                                         "
                                         size="sm"
                                         class="bg-[#007a2f] hover:bg-[#006428]"
-                                        @click="openWorkflow(variant, 'forward')"
+                                        @click="
+                                            openWorkflow(variant, 'forward')
+                                        "
                                     >
                                         <Check class="h-4 w-4" /> Forward
                                     </Button>
@@ -763,7 +881,9 @@ defineOptions({
                                         "
                                         size="sm"
                                         class="bg-[#007a2f] hover:bg-[#006428]"
-                                        @click="openWorkflow(variant, 'publish')"
+                                        @click="
+                                            openWorkflow(variant, 'publish')
+                                        "
                                     >
                                         <Check class="h-4 w-4" /> Publish
                                     </Button>
@@ -787,9 +907,10 @@ defineOptions({
                                             approvalQueue &&
                                             (canReviewReports ||
                                                 canApproveReports) &&
-                                            ['submitted', 'under_review'].includes(
-                                                variant.status,
-                                            )
+                                            [
+                                                'submitted',
+                                                'under_review',
+                                            ].includes(variant.status)
                                         "
                                         size="sm"
                                         variant="outline"
@@ -801,9 +922,10 @@ defineOptions({
                                         v-if="
                                             approvalQueue &&
                                             canApproveReports &&
-                                            ['submitted', 'under_review'].includes(
-                                                variant.status,
-                                            )
+                                            [
+                                                'submitted',
+                                                'under_review',
+                                            ].includes(variant.status)
                                         "
                                         size="sm"
                                         variant="destructive"
@@ -845,22 +967,36 @@ defineOptions({
 
                 <div
                     v-if="report.variants.length > 1"
-                    class="flex justify-end border-t border-[#cbdbe1] bg-[#f8fbfc] px-4 py-3"
+                    class="flex flex-wrap justify-end gap-2 border-t border-[#cbdbe1] bg-[#f8fbfc] px-4 py-3"
                 >
+                    <Button
+                        v-if="
+                            reviewStage === 'supervisor' &&
+                            !isReportGroupSplit(report) &&
+                            forwardableIdsForRow(report).length > 1
+                        "
+                        type="button"
+                        size="sm"
+                        class="bg-[#007a2f] text-white hover:bg-[#006428]"
+                        @click="openBulkForward(forwardableIdsForRow(report))"
+                    >
+                        <Check class="h-4 w-4" />
+                        Forward combined course
+                    </Button>
                     <Button
                         type="button"
                         size="sm"
                         variant="outline"
                         class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
-                        @click="toggleReportSplit(report.groupKey)"
+                        @click="toggleReportSplit(report)"
                     >
                         <Combine
-                            v-if="splitReportGroups.includes(report.groupKey)"
+                            v-if="isReportGroupSplit(report)"
                             class="h-4 w-4"
                         />
                         <Split v-else class="h-4 w-4" />
                         {{
-                            splitReportGroups.includes(report.groupKey)
+                            isReportGroupSplit(report)
                                 ? 'Combine offerings'
                                 : 'Split course offerings'
                         }}
@@ -925,7 +1061,9 @@ defineOptions({
                                 ? `${report.program?.name} (${report.program?.code})`
                                 : 'Program not set'
                         }}
-                        <span v-if="report.courses.some((course) => course.level)">
+                        <span
+                            v-if="report.courses.some((course) => course.level)"
+                        >
                             · Level
                             {{
                                 [
@@ -941,7 +1079,7 @@ defineOptions({
                     <div
                         v-if="
                             report.variants.length > 1 &&
-                            !splitReportGroups.includes(report.groupKey)
+                            !isReportGroupSplit(report)
                         "
                         class="mt-2 rounded-md bg-[#edf6fa] px-2 py-1.5 text-xs font-medium text-[#234d5d]"
                     >
@@ -1010,22 +1148,20 @@ defineOptions({
 
                 <div class="flex justify-end gap-2">
                     <Button
-                        v-if="
-                            report.variants.length > 1
-                        "
+                        v-if="report.variants.length > 1"
                         type="button"
                         size="sm"
                         variant="outline"
                         class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
-                        @click="toggleReportSplit(report.groupKey)"
+                        @click="toggleReportSplit(report)"
                     >
                         <Combine
-                            v-if="splitReportGroups.includes(report.groupKey)"
+                            v-if="isReportGroupSplit(report)"
                             class="h-4 w-4"
                         />
                         <Split v-else class="h-4 w-4" />
                         {{
-                            splitReportGroups.includes(report.groupKey)
+                            isReportGroupSplit(report)
                                 ? 'Combine offerings'
                                 : 'Split course offerings'
                         }}
@@ -1148,6 +1284,50 @@ defineOptions({
         >
             {{ emptyMessage }}
         </p>
+
+        <Dialog :open="bulkForwardOpen" @update:open="bulkForwardOpen = $event">
+            <DialogContent class="sm:max-w-md">
+                <form class="space-y-5" @submit.prevent="submitBulkForward">
+                    <DialogHeader>
+                        <DialogTitle
+                            >Forward reports to QA Director</DialogTitle
+                        >
+                        <DialogDescription>
+                            {{ bulkForwardForm.report_ids.length }} selected
+                            reports will move to Director Review together.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div class="grid gap-2">
+                        <Label for="bulk-forward-note">
+                            Supervisor note (optional)
+                        </Label>
+                        <textarea
+                            id="bulk-forward-note"
+                            v-model="bulkForwardForm.note"
+                            rows="4"
+                            class="rounded-md border border-[#9fd8b8] bg-white px-3 py-2 text-sm"
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            @click="bulkForwardOpen = false"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            class="bg-[#007a2f] text-white hover:bg-[#006428]"
+                            :disabled="bulkForwardForm.processing"
+                        >
+                            <Check class="h-4 w-4" />
+                            Forward reports
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
 
         <Dialog
             :open="workflowAction !== null"

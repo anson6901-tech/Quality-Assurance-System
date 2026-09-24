@@ -6,6 +6,7 @@ import {
     CheckCircle2,
     ClipboardList,
     BookOpenCheck,
+    BookMarked,
     GraduationCap,
     History,
     LayoutGrid,
@@ -95,6 +96,15 @@ const mainNavItems = computed<NavItem[]>(() => [
                   title: 'Print Queue',
                   href: '/quality/print-queue',
                   icon: Printer,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.permissions.includes('view_own_reports')
+        ? [
+              {
+                  title: 'My Courses',
+                  href: '/quality/my-courses',
+                  icon: BookMarked,
               },
           ]
         : []),

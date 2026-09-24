@@ -11,6 +11,7 @@ import {
 import { computed, ref } from 'vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -127,7 +128,10 @@ const programFilter = ref('');
 const levelFilter = ref('');
 const courseTypeFilter = ref('');
 const lecturerFilter = ref('');
-const splitCourseCodes = ref<string[]>([]);
+const { splitCourseCodes, toggleCourseSplit } = useCourseOfferingSplits(
+    selectedAcademicYearId,
+    selectedSemesterId,
+);
 const selectedAcademicYear = computed(
     () =>
         props.academicYears.find(
@@ -191,14 +195,8 @@ const filteredCourses = computed(() =>
     ),
 );
 const displayCourses = computed(() => filteredCourses.value);
-const toggleCourseSplit = (courseCode: string) => {
-    splitCourseCodes.value = splitCourseCodes.value.includes(courseCode)
-        ? splitCourseCodes.value.filter((code) => code !== courseCode)
-        : [...splitCourseCodes.value, courseCode];
-};
 const visibleCourseVariants = (course: Course) =>
-    course.variants.length === 1 ||
-    splitCourseCodes.value.includes(course.code)
+    course.variants.length === 1 || splitCourseCodes.value.includes(course.code)
         ? course.variants
         : [];
 const levels = computed(() =>
@@ -338,7 +336,7 @@ const deleteReport = (report: ApprovalReport) => {
             description="Select an academic year and semester. Each semester starts with fresh course allocations."
         />
         <div
-            class="flex flex-wrap items-end gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-4"
+            class="flex flex-wrap items-end gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-4 shadow-sm lg:sticky lg:top-24 lg:z-10"
         >
             <div class="grid gap-1">
                 <label class="text-sm font-medium">Academic year</label
@@ -630,28 +628,19 @@ const deleteReport = (report: ApprovalReport) => {
                                             {{ lecturer.name }}
                                         </div>
                                     </div>
-                                    <span
-                                        v-else
-                                        class="text-muted-foreground"
-                                    >
+                                    <span v-else class="text-muted-foreground">
                                         Not assigned
                                     </span>
                                 </div>
                                 <div class="text-xs text-muted-foreground">
-                                    <template
-                                        v-if="variant.lecturers.length"
-                                    >
+                                    <template v-if="variant.lecturers.length">
                                         <div
                                             v-for="lecturer in variant.lecturers"
                                             :key="lecturer.id"
                                         >
-                                            {{
-                                                lecturer.studentCount ?? '—'
-                                            }}
+                                            {{ lecturer.studentCount ?? '—' }}
                                             students ·
-                                            {{
-                                                lecturer.allocatedHours ?? '—'
-                                            }}
+                                            {{ lecturer.allocatedHours ?? '—' }}
                                             hrs
                                         </div>
                                     </template>

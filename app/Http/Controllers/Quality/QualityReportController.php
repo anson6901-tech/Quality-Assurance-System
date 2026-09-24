@@ -35,6 +35,10 @@ class QualityReportController extends Controller
 
             $reports = QualityReport::query()
                 ->whereIn('status', ['submitted', 'under_review', 'approved'])
+                ->when(
+                    $request->user()->university_role !== UniversityRole::IctAdmin->value,
+                    fn ($query) => $query->where('assigned_supervisor_id', $request->user()->id),
+                )
                 ->tap(fn ($query) => $this->applyApprovalScope($query, $request->user()))
                 ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
                 ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
@@ -247,10 +251,17 @@ class QualityReportController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
+        $supervisors = User::query()
+            ->where('university_role', UniversityRole::QaSupervisor->value)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'email']);
+
         return Inertia::render('quality/reports/Create', [
             'academicYears' => $academicYears,
             'semesters' => $semesters,
             'departments' => $departments,
+            'supervisors' => $supervisors,
             'courses' => $courses,
             'defaultAcademicYearId' => $defaultAcademicYearId,
             'defaultSemesterId' => $defaultSemesterId,
@@ -433,8 +444,13 @@ class QualityReportController extends Controller
         abort_unless($report->uploaded_by === $request->user()->id, 403);
         abort_unless($report->status === 'draft', 409);
 
-        DB::transaction(function () use ($request, $report): void {
-            $report->update(['status' => 'submitted']);
+        $validated = $this->validateSupervisorAssignment($request);
+
+        DB::transaction(function () use ($request, $report, $validated): void {
+            $report->update([
+                'status' => 'submitted',
+                'assigned_supervisor_id' => $validated['supervisor_id'],
+            ]);
             $this->recordReview($report, $request->user(), 'submitted_to_supervisor', null);
         });
 
@@ -450,6 +466,15 @@ class QualityReportController extends Controller
         $validated = $request->validate([
             'report_ids' => ['required', 'array', 'min:1'],
             'report_ids.*' => ['integer', 'distinct', 'exists:quality_reports,id'],
+            'supervisor_id' => [
+                'required',
+                'integer',
+                Rule::exists('users', 'id')->where(
+                    fn ($query) => $query
+                        ->where('university_role', UniversityRole::QaSupervisor->value)
+                        ->where('is_active', true),
+                ),
+            ],
         ]);
 
         $reports = QualityReport::query()
@@ -465,9 +490,12 @@ class QualityReportController extends Controller
             403
         );
 
-        DB::transaction(function () use ($request, $reports): void {
+        DB::transaction(function () use ($request, $reports, $validated): void {
             foreach ($reports as $report) {
-                $report->update(['status' => 'submitted']);
+                $report->update([
+                    'status' => 'submitted',
+                    'assigned_supervisor_id' => $validated['supervisor_id'],
+                ]);
                 $this->recordReview($report, $request->user(), 'submitted_to_supervisor', null);
             }
         });
@@ -502,6 +530,7 @@ class QualityReportController extends Controller
     public function forwardToDirector(Request $request, QualityReport $report): RedirectResponse
     {
         abort_unless($request->user()->canReviewQualityReports(), 403);
+        abort_unless($this->canReviewAssignedReport($request, $report), 403);
         abort_unless($this->approvalScopedReportExists($request, $report), 403);
         abort_unless($report->status === 'submitted', 409);
 
@@ -524,6 +553,45 @@ class QualityReportController extends Controller
         return to_route('quality.reports.index');
     }
 
+    public function forwardSelected(Request $request): RedirectResponse
+    {
+        abort_unless($request->user()->canReviewQualityReports(), 403);
+
+        $validated = $request->validate([
+            'report_ids' => ['required', 'array', 'min:1'],
+            'report_ids.*' => ['integer', 'distinct', Rule::exists('quality_reports', 'id')],
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $reports = QualityReport::query()->whereIn('id', $validated['report_ids'])->get();
+
+        abort_unless($reports->count() === count($validated['report_ids']), 422);
+        abort_unless(
+            $reports->every(fn (QualityReport $report): bool => $report->status === 'submitted'
+                && $this->canReviewAssignedReport($request, $report)
+                && $this->approvalScopedReportExists($request, $report)),
+            403,
+        );
+
+        DB::transaction(function () use ($request, $reports, $validated): void {
+            foreach ($reports as $report) {
+                $report->update(['status' => 'under_review']);
+                $this->recordReview($report, $request->user(), 'forwarded_to_director', $validated['note'] ?? null);
+            }
+        });
+
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => trans_choice(
+                '{1} One report forwarded to the QA Director.|[2,*] :count reports forwarded to the QA Director.',
+                $reports->count(),
+                ['count' => $reports->count()],
+            ),
+        ]);
+
+        return to_route('quality.reports.index');
+    }
+
     public function returnToOfficer(Request $request, QualityReport $report): RedirectResponse
     {
         abort_unless(
@@ -531,6 +599,9 @@ class QualityReportController extends Controller
                 || $this->canManageApprovalReport($request, $report),
             403,
         );
+        if (! $request->user()->canApproveQualityReports()) {
+            abort_unless($this->canReviewAssignedReport($request, $report), 403);
+        }
         abort_unless($this->approvalScopedReportExists($request, $report), 403);
         abort_unless(in_array($report->status, ['submitted', 'under_review'], true), 409);
 
@@ -538,7 +609,8 @@ class QualityReportController extends Controller
             'note' => ['required', 'string', 'max:2000'],
         ]);
 
-        $action = $request->user()->canApproveQualityReports()
+        $action = $report->status === 'under_review'
+            && $request->user()->canApproveQualityReports()
             ? 'returned_to_supervisor'
             : 'returned_to_officer';
         $status = $action === 'returned_to_officer' ? 'draft' : 'submitted';
@@ -594,6 +666,24 @@ class QualityReportController extends Controller
 
     public function destroy(Request $request, QualityReport $report): RedirectResponse
     {
+        if ($report->status === 'draft') {
+            abort_unless($report->uploaded_by === $request->user()->id, 403);
+
+            DB::transaction(function () use ($request, $report): void {
+                $this->recordReview($report, $request->user(), 'deleted', 'Draft deleted by uploader.');
+
+                if ($report->file_path) {
+                    Storage::disk('public')->delete($report->file_path);
+                }
+
+                $report->delete();
+            });
+
+            Inertia::flash('toast', ['type' => 'success', 'message' => __('Draft report deleted.')]);
+
+            return back();
+        }
+
         abort_unless($this->canManageApprovalReport($request, $report), 403);
         abort_unless(in_array($report->status, ['submitted', 'under_review'], true), 409);
 
@@ -620,7 +710,7 @@ class QualityReportController extends Controller
     {
         abort_unless($this->canViewReport($request, $report), 403);
 
-        $report->load(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name,email', 'reviews.actor:id,name']);
+        $report->load(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'assignedSupervisor:id,name,email,university_role', 'uploader:id,name,email,university_role', 'reviews.actor:id,name,email,university_role']);
 
         return Inertia::render('quality/reports/Show', [
             'report' => $this->serializeReport($report, includeDetails: true),
@@ -722,7 +812,25 @@ class QualityReportController extends Controller
                     'id' => $review->id,
                     'action' => $review->action,
                     'note' => $review->note,
-                    'actor' => $review->actor?->name,
+                    'actor' => $review->actor ? [
+                        'id' => $review->actor->id,
+                        'name' => $review->actor->name,
+                        'email' => $review->actor->email,
+                        'role' => QualityRolePermission::labelFor($review->actor->university_role),
+                    ] : null,
+                    'recipient' => match ($review->action) {
+                        'submitted_to_supervisor', 'returned_to_supervisor' => $report->assignedSupervisor ? [
+                            'name' => $report->assignedSupervisor->name,
+                            'email' => $report->assignedSupervisor->email,
+                            'role' => QualityRolePermission::labelFor($report->assignedSupervisor->university_role),
+                        ] : null,
+                        'returned_to_officer' => $report->uploader ? [
+                            'name' => $report->uploader->name,
+                            'email' => $report->uploader->email,
+                            'role' => QualityRolePermission::labelFor($report->uploader->university_role),
+                        ] : null,
+                        default => null,
+                    },
                     'createdAt' => $review->created_at->toFormattedDateString(),
                 ])
                 : [],
@@ -744,9 +852,12 @@ class QualityReportController extends Controller
             return true;
         }
 
-        if (in_array($report->status, ['draft', 'submitted'], true)) {
-            return ($request->user()->canReviewQualityReports()
-                    || $request->user()->canApproveQualityReports())
+        if ($report->status === 'draft') {
+            return false;
+        }
+
+        if ($report->status === 'submitted') {
+            return $this->canReviewAssignedReport($request, $report)
                 && $this->approvalScopedReportExists($request, $report);
         }
 
@@ -772,6 +883,29 @@ class QualityReportController extends Controller
             'actor_id' => $actor->id,
             'action' => $action,
             'note' => $note,
+        ]);
+    }
+
+    private function canReviewAssignedReport(Request $request, QualityReport $report): bool
+    {
+        return $request->user()->canReviewQualityReports()
+            && ($request->user()->university_role === UniversityRole::IctAdmin->value
+                || $report->assigned_supervisor_id === $request->user()->id);
+    }
+
+    /** @return array{supervisor_id: int} */
+    private function validateSupervisorAssignment(Request $request): array
+    {
+        return $request->validate([
+            'supervisor_id' => [
+                'required',
+                'integer',
+                Rule::exists('users', 'id')->where(
+                    fn ($query) => $query
+                        ->where('university_role', UniversityRole::QaSupervisor->value)
+                        ->where('is_active', true),
+                ),
+            ],
         ]);
     }
 

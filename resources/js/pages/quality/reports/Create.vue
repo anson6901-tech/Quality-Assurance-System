@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import { Head, router, useForm } from '@inertiajs/vue3';
-import { Combine, FileText, Send, Split, Upload, X } from 'lucide-vue-next';
+import { Head, useForm } from '@inertiajs/vue3';
+import {
+    Combine,
+    FileText,
+    Send,
+    Split,
+    Trash2,
+    Upload,
+    X,
+} from 'lucide-vue-next';
 import { computed, nextTick, ref, watch } from 'vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -49,6 +58,7 @@ interface CourseWithLecturers extends CourseOption {
 type AssignmentRow = {
     course: CourseWithLecturers;
     lecturer: CourseWithLecturers['lecturers'][number];
+    lecturers: CourseWithLecturers['lecturers'];
     report: CourseWithLecturers['reports'][number] | undefined;
     programs: Array<{ id: number; name: string; code: string }>;
     levels: string[];
@@ -72,6 +82,7 @@ const props = defineProps<{
     academicYears: AcademicYearOption[];
     semesters: Semester[];
     departments: Department[];
+    supervisors: Array<{ id: number; name: string; email: string }>;
     courses: CourseWithLecturers[];
     defaultAcademicYearId?: number;
     defaultSemesterId?: number;
@@ -99,8 +110,10 @@ const uploadCourseCode = ref('');
 const uploadProgramOptions = ref<
     Array<{ id: number; name: string; code: string }>
 >([]);
-const splitAssignmentGroups = ref<string[]>([]);
 const selectedReportIds = ref<number[]>([]);
+const supervisorPickerOpen = ref(false);
+const pendingPushReportIds = ref<number[]>([]);
+const draftToDelete = ref<number | null>(null);
 
 const form = useForm({
     title: '',
@@ -116,6 +129,21 @@ const form = useForm({
     report_file: null as File | null,
     summary: '',
 });
+
+const {
+    splitCourseCodes: splitAssignmentGroups,
+    toggleCourseSplit: toggleAssignmentSplit,
+} = useCourseOfferingSplits(
+    () => form.academic_year_id,
+    () => form.semester_id,
+);
+
+const pushForm = useForm({
+    supervisor_id: '',
+    report_ids: [] as number[],
+});
+
+const deleteDraftForm = useForm({});
 
 const semestersForYear = computed(() =>
     props.semesters.filter(
@@ -303,10 +331,11 @@ const startGroupedUpload = async (row: AssignmentRow) => {
     ];
     form.course_ids = [row.course.id];
     form.program_id = '';
-    form.program_ids = uploadProgramOptions.value.map(
-        (program) => program.id,
-    );
-    form.lecturer_id = String(row.lecturer.id);
+    form.program_ids = uploadProgramOptions.value.map((program) => program.id);
+    const lecturerIds = [
+        ...new Set(variants.map((variant) => variant.lecturer.id)),
+    ];
+    form.lecturer_id = lecturerIds.length === 1 ? String(lecturerIds[0]) : '';
     form.title = `Lecture evaluation - ${row.course.code}`;
     form.clearErrors();
 
@@ -326,11 +355,12 @@ const baseAssignmentRows = computed(() =>
         course.lecturers.map((lecturer) => ({
             course,
             lecturer,
+            lecturers: [lecturer],
             report: assignmentReport(course, lecturer.id),
             programs: course.program ? [course.program] : [],
             levels: course.level ? [course.level] : [],
             variants: [] as AssignmentRow[],
-            groupKey: `${course.code}:${lecturer.id}`,
+            groupKey: course.code,
             mixedStatus: false,
         })),
     ),
@@ -350,6 +380,14 @@ const groupedAssignmentRows = computed<AssignmentRow[]>(() => {
 
         return {
             ...row,
+            lecturers: [
+                ...new Map(
+                    variants.map((variant) => [
+                        variant.lecturer.id,
+                        variant.lecturer,
+                    ]),
+                ).values(),
+            ],
             programs: [
                 ...new Map(
                     variants
@@ -366,11 +404,6 @@ const groupedAssignmentRows = computed<AssignmentRow[]>(() => {
     });
 });
 const assignmentRows = computed(() => groupedAssignmentRows.value);
-const toggleAssignmentSplit = (groupKey: string) => {
-    splitAssignmentGroups.value = splitAssignmentGroups.value.includes(groupKey)
-        ? splitAssignmentGroups.value.filter((key) => key !== groupKey)
-        : [...splitAssignmentGroups.value, groupKey];
-};
 const visibleOfferingRows = (row: AssignmentRow) =>
     row.variants.length === 1 ||
     splitAssignmentGroups.value.includes(row.groupKey)
@@ -431,24 +464,56 @@ const toggleAllVisibleDrafts = () => {
 const pushSelectedToSupervisor = () => {
     if (selectedReportIds.value.length === 0) return;
 
-    router.post(
-        '/quality/reports/push-selected',
-        { report_ids: selectedReportIds.value },
-        {
-            preserveScroll: true,
-            onSuccess: () => {
-                selectedReportIds.value = [];
-            },
-        },
-    );
+    pendingPushReportIds.value = [...selectedReportIds.value];
+    pushForm.supervisor_id = '';
+    pushForm.clearErrors();
+    supervisorPickerOpen.value = true;
 };
 
 const pushToSupervisor = (reportId: number) => {
-    router.post(
-        `/quality/reports/${reportId}/push`,
-        {},
-        { preserveScroll: true },
-    );
+    pendingPushReportIds.value = [reportId];
+    pushForm.supervisor_id = '';
+    pushForm.clearErrors();
+    supervisorPickerOpen.value = true;
+};
+
+const confirmDeleteDraft = () => {
+    if (!draftToDelete.value) return;
+
+    deleteDraftForm.delete(`/quality/reports/${draftToDelete.value}`, {
+        preserveScroll: true,
+        onSuccess: () => {
+            selectedReportIds.value = selectedReportIds.value.filter(
+                (reportId) => reportId !== draftToDelete.value,
+            );
+            draftToDelete.value = null;
+        },
+    });
+};
+
+const confirmPushToSupervisor = () => {
+    if (!pushForm.supervisor_id || pendingPushReportIds.value.length === 0) {
+        return;
+    }
+
+    const reportIds = [...pendingPushReportIds.value];
+    const route =
+        reportIds.length === 1
+            ? `/quality/reports/${reportIds[0]}/push`
+            : '/quality/reports/push-selected';
+
+    pushForm.report_ids = reportIds;
+    pushForm.post(route, {
+        preserveScroll: true,
+        onSuccess: () => {
+            selectedReportIds.value = selectedReportIds.value.filter(
+                (reportId) => !reportIds.includes(reportId),
+            );
+            pendingPushReportIds.value = [];
+            supervisorPickerOpen.value = false;
+            pushForm.reset();
+        },
+    });
 };
 
 const formatDateTime = (value: string | null) =>
@@ -510,7 +575,7 @@ const applyFilters = () => {
 <template>
     <Head title="Upload Report" />
 
-    <div class="max-w-6xl space-y-6">
+    <div class="w-full min-w-0 space-y-6">
         <div
             class="rounded-2xl bg-gradient-to-r from-[#005f28] to-[#00853a] px-6 py-6 shadow-lg shadow-[#005f28]/15 [&_h2]:text-white [&_p]:text-white/75"
         >
@@ -523,7 +588,7 @@ const applyFilters = () => {
 
         <div class="space-y-5">
             <div
-                class="flex flex-wrap items-end gap-4 rounded-2xl border border-[#7acb9c] bg-gradient-to-br from-[#effaf3] to-[#e3f6eb] p-5 shadow-sm ring-1 ring-[#007a2f]/10 [&_input]:border-[#9fd8b8] [&_input]:bg-white [&_select]:border-[#9fd8b8] [&_select]:bg-white [&_select]:text-[#063f22]"
+                class="flex flex-wrap items-end gap-4 rounded-2xl border border-[#7acb9c] bg-gradient-to-br from-[#effaf3] to-[#e3f6eb] p-5 shadow-sm ring-1 ring-[#007a2f]/10 lg:sticky lg:top-24 lg:z-10 [&_input]:border-[#9fd8b8] [&_input]:bg-white [&_select]:border-[#9fd8b8] [&_select]:bg-white [&_select]:text-[#063f22]"
             >
                 <div class="grid min-w-[180px] flex-1 gap-1">
                     <label for="academic-year" class="text-sm font-medium">
@@ -781,10 +846,16 @@ const applyFilters = () => {
                                 Lecturer
                             </div>
                             <div class="truncate text-sm font-medium">
-                                {{ row.lecturer.name }}
+                                {{
+                                    row.lecturers.length === 1
+                                        ? row.lecturers[0].name
+                                        : `${row.lecturers.length} lecturers`
+                                }}
                             </div>
                         </div>
-                        <div class="flex flex-wrap items-center gap-2 md:justify-end">
+                        <div
+                            class="flex flex-wrap items-center gap-2 md:justify-end"
+                        >
                             <Badge
                                 variant="secondary"
                                 class="bg-[#d9edf5] text-[#234d5d]"
@@ -816,7 +887,7 @@ const applyFilters = () => {
                             class="overflow-hidden rounded-md border border-[#9fb7c1]"
                         >
                             <div
-                                class="hidden grid-cols-[1.7fr_0.7fr_0.55fr_1.15fr_0.75fr_1.25fr_auto] gap-px bg-[#9fb7c1] text-xs font-semibold text-[#294c59] md:grid"
+                                class="hidden grid-cols-[minmax(160px,1.6fr)_minmax(90px,0.65fr)_minmax(64px,0.5fr)_minmax(170px,1.2fr)_minmax(120px,0.8fr)_minmax(190px,1.25fr)_minmax(150px,auto)] gap-0 bg-[#9fb7c1] text-xs font-semibold text-[#294c59] md:grid"
                             >
                                 <div class="bg-[#d9edf5] px-3 py-2">
                                     Program
@@ -826,19 +897,13 @@ const applyFilters = () => {
                                 <div class="bg-[#d9edf5] px-3 py-2">
                                     Lecturer
                                 </div>
-                                <div class="bg-[#d9edf5] px-3 py-2">
-                                    Status
-                                </div>
+                                <div class="bg-[#d9edf5] px-3 py-2">Status</div>
                                 <div class="bg-[#d9edf5] px-3 py-2">
                                     Activity
                                 </div>
-                                <div class="bg-[#d9edf5] px-3 py-2">
-                                    Action
-                                </div>
+                                <div class="bg-[#d9edf5] px-3 py-2">Action</div>
                             </div>
-                            <div
-                                class="divide-y divide-[#cbdbe1] bg-white"
-                            >
+                            <div class="divide-y divide-[#cbdbe1] bg-white">
                                 <div
                                     v-if="
                                         row.variants.length > 1 &&
@@ -850,7 +915,7 @@ const applyFilters = () => {
                                 >
                                     <div>
                                         <div class="font-medium text-[#243d47]">
-                                            {{ row.variants.length }} program
+                                            {{ row.variants.length }} course
                                             offerings grouped
                                         </div>
                                         <div
@@ -868,35 +933,37 @@ const applyFilters = () => {
                                 <div
                                     v-for="variant in visibleOfferingRows(row)"
                                     :key="variant.course.offeringId"
-                                    class="grid gap-3 px-3 py-3 text-sm md:grid-cols-[1.7fr_0.7fr_0.55fr_1.15fr_0.75fr_1.25fr_auto] md:items-center"
+                                    class="grid gap-3 py-3 text-sm md:grid-cols-[minmax(160px,1.6fr)_minmax(90px,0.65fr)_minmax(64px,0.5fr)_minmax(170px,1.2fr)_minmax(120px,0.8fr)_minmax(190px,1.25fr)_minmax(150px,auto)] md:items-center md:gap-0"
                                 >
-                                    <div class="font-medium text-[#243d47]">
+                                    <div
+                                        class="px-3 font-medium text-[#243d47]"
+                                    >
                                         {{
                                             variant.course.program?.name ??
                                             'Program not set'
                                         }}
                                     </div>
-                                    <div class="text-muted-foreground">
+                                    <div class="px-3 text-muted-foreground">
                                         {{
                                             variant.course.program?.code ?? '—'
                                         }}
                                     </div>
-                                    <div>
+                                    <div class="px-3">
                                         {{ variant.course.level ?? '—' }}
                                     </div>
-                                    <div class="min-w-0">
-                                        <div class="truncate font-medium">
+                                    <div class="min-w-0 px-3 leading-tight">
+                                        <div class="font-medium break-words">
                                             {{ variant.lecturer.name }}
                                         </div>
                                         <div
-                                            class="truncate text-xs text-muted-foreground"
+                                            class="mt-1 text-xs break-all text-muted-foreground"
                                         >
                                             {{ variant.lecturer.email }}
                                         </div>
                                     </div>
                                     <Badge
                                         variant="secondary"
-                                        class="w-fit bg-[#e2f2e8] text-[#075b2e]"
+                                        class="mx-3 w-fit bg-[#e2f2e8] text-[#075b2e]"
                                     >
                                         {{
                                             reportStatusLabel(
@@ -906,7 +973,7 @@ const applyFilters = () => {
                                     </Badge>
                                     <div
                                         v-if="variant.report"
-                                        class="text-xs text-muted-foreground"
+                                        class="px-3 text-xs text-muted-foreground"
                                     >
                                         <div>
                                             Uploaded
@@ -927,28 +994,47 @@ const applyFilters = () => {
                                     </div>
                                     <span
                                         v-else
-                                        class="text-xs text-muted-foreground"
+                                        class="px-3 text-xs text-muted-foreground"
                                     >
                                         Not started
                                     </span>
-                                    <div class="flex justify-end">
-                                        <Button
+                                    <div class="flex justify-end gap-2 px-3">
+                                        <template
                                             v-if="
                                                 variant.report?.status ===
                                                 'draft'
                                             "
-                                            type="button"
-                                            size="sm"
-                                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                                            @click="
-                                                pushToSupervisor(
-                                                    variant.report.id,
-                                                )
-                                            "
                                         >
-                                            <Send class="h-4 w-4" />
-                                            Push
-                                        </Button>
+                                            <Button
+                                                type="button"
+                                                size="icon"
+                                                variant="outline"
+                                                class="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                                                title="Delete draft"
+                                                @click="
+                                                    draftToDelete =
+                                                        variant.report.id
+                                                "
+                                            >
+                                                <Trash2 class="h-4 w-4" />
+                                                <span class="sr-only"
+                                                    >Delete draft</span
+                                                >
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                                                @click="
+                                                    pushToSupervisor(
+                                                        variant.report.id,
+                                                    )
+                                                "
+                                            >
+                                                <Send class="h-4 w-4" />
+                                                Push
+                                            </Button>
+                                        </template>
                                         <Button
                                             v-else-if="!variant.report"
                                             type="button"
@@ -976,20 +1062,29 @@ const applyFilters = () => {
                         <p class="text-xs text-muted-foreground">
                             {{
                                 row.variants.length > 1
-                                    ? `${row.variants.length} program offerings are grouped for this lecturer.`
-                                    : 'One program offering for this lecturer.'
+                                    ? `${row.variants.length} course offerings are grouped across ${row.lecturers.length} lecturer${row.lecturers.length === 1 ? '' : 's'}.`
+                                    : 'One course offering is available.'
                             }}
                         </p>
                         <div class="flex flex-wrap gap-2 sm:justify-end">
                             <Button
-                                v-if="mainUploadableVariants(row).length"
+                                v-if="
+                                    mainUploadableVariants(row).length &&
+                                    !splitAssignmentGroups.includes(
+                                        row.groupKey,
+                                    )
+                                "
                                 type="button"
                                 size="sm"
                                 class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
                                 @click="startGroupedUpload(row)"
                             >
                                 <Upload class="h-4 w-4" />
-                                Upload from main course
+                                {{
+                                    mainUploadableVariants(row).length > 1
+                                        ? 'Upload once for all programs'
+                                        : 'Upload report'
+                                }}
                             </Button>
                             <Button
                                 v-if="row.variants.length > 1"
@@ -1028,6 +1123,112 @@ const applyFilters = () => {
             <InputError :message="form.errors.course_ids" />
             <InputError :message="form.errors.lecturer_id" />
         </div>
+
+        <Dialog
+            :open="supervisorPickerOpen"
+            @update:open="supervisorPickerOpen = $event"
+        >
+            <DialogContent class="sm:max-w-md">
+                <form
+                    class="space-y-5"
+                    @submit.prevent="confirmPushToSupervisor"
+                >
+                    <DialogHeader>
+                        <DialogTitle>Select QA Supervisor</DialogTitle>
+                        <DialogDescription>
+                            Only the selected supervisor will receive and review
+                            {{
+                                pendingPushReportIds.length === 1
+                                    ? 'this report'
+                                    : `${pendingPushReportIds.length} reports`
+                            }}.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div v-if="supervisors.length" class="grid gap-2">
+                        <Label for="push-supervisor">Supervisor</Label>
+                        <select
+                            id="push-supervisor"
+                            v-model="pushForm.supervisor_id"
+                            class="h-10 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm"
+                            required
+                        >
+                            <option value="" disabled>Select supervisor</option>
+                            <option
+                                v-for="supervisor in supervisors"
+                                :key="supervisor.id"
+                                :value="String(supervisor.id)"
+                            >
+                                {{ supervisor.name }} - {{ supervisor.email }}
+                            </option>
+                        </select>
+                        <InputError :message="pushForm.errors.supervisor_id" />
+                    </div>
+                    <p
+                        v-else
+                        class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                    >
+                        No active QA Supervisors are available. Create or
+                        activate a supervisor account first.
+                    </p>
+
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            @click="supervisorPickerOpen = false"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                            :disabled="
+                                !pushForm.supervisor_id ||
+                                pushForm.processing ||
+                                supervisors.length === 0
+                            "
+                        >
+                            <Send class="h-4 w-4" />
+                            Assign and push
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog
+            :open="draftToDelete !== null"
+            @update:open="(open) => !open && (draftToDelete = null)"
+        >
+            <DialogContent class="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Delete draft report?</DialogTitle>
+                    <DialogDescription>
+                        This removes the uploaded file. You can upload a new
+                        report for this course afterward.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        @click="draftToDelete = null"
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        type="button"
+                        class="bg-red-700 text-white hover:bg-red-800"
+                        :disabled="deleteDraftForm.processing"
+                        @click="confirmDeleteDraft"
+                    >
+                        <Trash2 class="h-4 w-4" />
+                        Delete draft
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
 
         <Dialog
             :open="uploadOpen"

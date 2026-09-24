@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'program_id',
     'lecturer_id',
     'uploaded_by',
+    'assigned_supervisor_id',
 ])]
 class QualityReport extends Model
 {
@@ -79,6 +80,12 @@ class QualityReport extends Model
     public function lecturer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'lecturer_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function assignedSupervisor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_supervisor_id');
     }
 
     /**

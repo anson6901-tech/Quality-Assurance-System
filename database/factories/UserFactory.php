@@ -35,6 +35,7 @@ class UserFactory extends Factory
             'university_role' => UniversityRole::Lecturer,
             'school_id' => null,
             'department_id' => null,
+            'is_active' => true,
             'remember_token' => Str::random(10),
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,

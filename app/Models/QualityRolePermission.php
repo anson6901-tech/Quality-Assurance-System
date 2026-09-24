@@ -72,7 +72,7 @@ class QualityRolePermission extends Model
             ],
             UniversityRole::Dean->value => ['view_school_reports', 'view_own_reports', 'view_print_queue'],
             UniversityRole::Hod->value => ['manage_course_assignments', 'view_own_reports', 'view_print_queue'],
-            UniversityRole::Lecturer->value => ['view_own_reports', 'view_print_queue'],
+            UniversityRole::Lecturer->value => ['view_own_reports'],
             UniversityRole::AppointmentCommittee->value => ['view_all_reports', 'view_print_queue'],
         ];
     }

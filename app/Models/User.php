@@ -141,6 +141,10 @@ class User extends Authenticatable
 
     public function canViewPrintQueue(): bool
     {
+        if ($this->university_role === UniversityRole::Lecturer->value) {
+            return false;
+        }
+
         return QualityRolePermission::roleHas($this->university_role, 'view_print_queue');
     }
 

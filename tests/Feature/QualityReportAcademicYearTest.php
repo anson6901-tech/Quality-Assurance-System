@@ -3,12 +3,15 @@
 use App\Enums\UniversityRole;
 use App\Models\AcademicYear;
 use App\Models\Course;
+use App\Models\CourseOffering;
 use App\Models\Department;
+use App\Models\Program;
 use App\Models\QualityReport;
 use App\Models\QualityRolePermission;
 use App\Models\School;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -178,6 +181,64 @@ it('stores another report for the same lecturer and course in an active academic
     expect(QualityReport::where('lecturer_id', $lecturer->id)->count())->toBe(2);
 });
 
+it('uploads one file for every combined program offering with its assigned lecturer', function () {
+    Storage::fake('public');
+
+    $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
+    $semester = $academicYear->semesters()->firstOrFail();
+    $officer = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
+    $course = Course::create([
+        'department_id' => $department->id,
+        'code' => 'NURS 305',
+        'title' => 'Combined Nursing Practice',
+    ]);
+    $programs = collect([
+        Program::create(['department_id' => $department->id, 'name' => 'BSc Nursing', 'code' => 'BSCN', 'max_level' => 400]),
+        Program::create(['department_id' => $department->id, 'name' => 'BSc Midwifery', 'code' => 'BSCM', 'max_level' => 400]),
+    ]);
+    $lecturers = collect([
+        User::factory()->create(['university_role' => UniversityRole::Lecturer]),
+        User::factory()->create(['university_role' => UniversityRole::Lecturer]),
+    ]);
+
+    $programs->each(function (Program $program, int $index) use ($course, $semester, $lecturers): void {
+        CourseOffering::create([
+            'course_id' => $course->id,
+            'program_id' => $program->id,
+            'semester_id' => $semester->id,
+            'level' => '300',
+        ]);
+        DB::table('course_lecturer')->insert([
+            'course_id' => $course->id,
+            'lecturer_id' => $lecturers[$index]->id,
+            'program_id' => $program->id,
+            'semester_id' => $semester->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    });
+
+    $this->actingAs($officer)
+        ->post('/quality/reports', [
+            'title' => 'Combined program report',
+            'category' => 'Academic Quality',
+            'academic_year_id' => $academicYear->id,
+            'semester_id' => $semester->id,
+            'program_ids' => $programs->pluck('id')->all(),
+            'course_ids' => [$course->id],
+            'report_file' => UploadedFile::fake()->create('combined.pdf', 100, 'application/pdf'),
+        ])
+        ->assertRedirect('/quality/reports/create');
+
+    expect(QualityReport::query()->count())->toBe(2)
+        ->and(QualityReport::query()->pluck('program_id')->sort()->values()->all())
+        ->toBe($programs->pluck('id')->sort()->values()->all())
+        ->and(QualityReport::query()->pluck('lecturer_id')->sort()->values()->all())
+        ->toBe($lecturers->pluck('id')->sort()->values()->all());
+});
+
 it('does not store a report for a course that is not assigned to the lecturer', function () {
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
     $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
@@ -285,10 +346,13 @@ it('keeps uploads in draft until the officer pushes them to the supervisor', fun
         ->and($report->reviews()->first()->actor_id)->toBe($qaOfficer->id);
 
     $this->actingAs($qaOfficer)
-        ->post("/quality/reports/{$report->id}/push")
+        ->post("/quality/reports/{$report->id}/push", [
+            'supervisor_id' => $supervisor->id,
+        ])
         ->assertRedirect('/quality/reports');
 
     expect($report->refresh()->status)->toBe('submitted')
+        ->and($report->assigned_supervisor_id)->toBe($supervisor->id)
         ->and($report->reviews()->first()->action)->toBe('submitted_to_supervisor')
         ->and($report->reviews()->first()->actor_id)->toBe($qaOfficer->id);
 
@@ -385,10 +449,13 @@ it('submits a draft report to the supervisor queue and locks it', function () {
     ]);
 
     $this->actingAs($qaOfficer)
-        ->post("/quality/reports/{$report->id}/push")
+        ->post("/quality/reports/{$report->id}/push", [
+            'supervisor_id' => $supervisor->id,
+        ])
         ->assertRedirect('/quality/reports');
 
     expect($report->refresh()->status)->toBe('submitted');
+    expect($report->assigned_supervisor_id)->toBe($supervisor->id);
 
     $this->actingAs($supervisor)
         ->get("/quality/reports/{$report->id}")
@@ -1362,10 +1429,7 @@ it('applies document role-based access to approved reports', function () {
 
     $this->actingAs($lecturer)
         ->get('/quality/print-queue')
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->has('reports', 1)
-            ->where('reports.0.title', 'Nursing approved report'));
+        ->assertForbidden();
 
     $this->actingAs($committeeMember)
         ->get('/quality/print-queue')
@@ -1524,20 +1588,11 @@ it('shows lecturers reports assigned directly or through their courses', functio
             'school_id' => 999,
             'department_id' => 999,
         ]))
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->has('reports', 1)
-            ->where('reports.0.title', $directReport->title)
-            ->where('filters', [])
-            ->where('filterOptions', null));
+        ->assertForbidden();
 
     $this->actingAs($courseLecturer)
         ->get('/quality/print-queue')
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->has('reports', 1)
-            ->where('reports.0.title', $courseReport->title)
-            ->where('filterOptions', null));
+        ->assertForbidden();
 });
 
 it('unapproves reports and removes them from the print queue', function () {

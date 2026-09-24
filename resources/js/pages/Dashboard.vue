@@ -1,31 +1,93 @@
 <script setup lang="ts">
 import { Head, Link, usePage } from '@inertiajs/vue3';
 import {
-    ArrowUpRight,
-    Check,
+    BookOpenCheck,
+    ArrowRight,
     CheckCircle2,
-    Clock3,
+    ClipboardList,
     FileText,
-    TrendingUp,
+    ListPlus,
+    Upload,
+    Users,
+    CalendarRange,
 } from 'lucide-vue-next';
+import { computed } from 'vue';
 import { Button } from '@/components/ui/button';
 import { dashboard } from '@/routes';
 import type { Team } from '@/types';
 
+const props = defineProps<{
+    stats: {
+        publishedReports: number;
+        pendingReports: number;
+        assignedCourses: number;
+        departmentCourses: number;
+    };
+    academicYearStats: Array<{
+        id: number;
+        name: string;
+        status: string;
+        totalReports: number;
+        draftReports: number;
+        supervisorReview: number;
+        directorReview: number;
+        publishedReports: number;
+        publicationRate: number;
+    }>;
+}>();
 const page = usePage();
+const profile = computed(() => page.props.qualityProfile);
+const roleGreeting = computed(() => profile.value?.roleLabel ?? 'Colleague');
+const isLecturer = computed(() => profile.value?.role === 'lecturer');
+const isSystemAdministrator = computed(
+    () => profile.value?.role === 'ict_admin',
+);
 
-const roleGreeting =
-    page.props.qualityProfile?.role === 'qa_officer'
-        ? 'QA Officer'
-        : (page.props.qualityProfile?.roleLabel ?? 'Colleague');
+const primaryAction = computed(() => {
+    if (profile.value?.canApproveReports)
+        return {
+            label: 'Open Director Review',
+            href: '/quality/approvals',
+            icon: CheckCircle2,
+        };
+    if (profile.value?.canReviewReports)
+        return {
+            label: 'Open Supervisor Review',
+            href: '/quality/reports',
+            icon: ClipboardList,
+        };
+    if (profile.value?.canUploadReports)
+        return {
+            label: 'Upload Reports',
+            href: '/quality/reports/create',
+            icon: Upload,
+        };
+    if (profile.value?.canManageCourseAssignments)
+        return {
+            label: 'Assign Courses',
+            href: '/quality/course-assignments',
+            icon: Users,
+        };
+    if (profile.value?.permissions.includes('view_own_reports'))
+        return {
+            label: 'View My Courses',
+            href: '/quality/my-courses',
+            icon: BookOpenCheck,
+        };
+    return {
+        label: 'View Published Reports',
+        href: '/quality/print-queue',
+        icon: FileText,
+    };
+});
 
 defineOptions({
-    layout: (props: { currentTeam?: Team | null }) => ({
+    layout: (layoutProps: { currentTeam?: Team | null }) => ({
         breadcrumbs: [
             {
                 title: 'Dashboard',
-                href: props.currentTeam
-                    ? dashboard(props.currentTeam.slug)
+                href: layoutProps.currentTeam
+                    ? dashboard(layoutProps.currentTeam.slug)
                     : '/',
             },
         ],
@@ -36,187 +98,358 @@ defineOptions({
 <template>
     <Head title="Dashboard" />
 
-    <div class="flex h-full flex-1 flex-col gap-8">
-        <div
-            class="rounded-2xl bg-gradient-to-r from-[#007a2f] to-[#00a64a] px-8 py-9 text-white shadow-sm ring-1 ring-[#007a2f]/10 lg:px-10"
+    <div class="space-y-7">
+        <section
+            class="overflow-hidden rounded-lg border border-[#075b2e] bg-[#064d2b] text-white shadow-sm"
         >
             <div
-                class="flex flex-col gap-7 xl:flex-row xl:items-end xl:justify-between"
+                class="flex flex-col gap-8 px-6 py-8 sm:px-8 lg:flex-row lg:items-end lg:justify-between"
             >
                 <div>
-                    <div
-                        class="text-sm font-semibold tracking-[0.18em] text-white/75 uppercase"
-                    >
-                        Welcome back
-                    </div>
-                    <h1
-                        class="mt-3 text-4xl leading-tight font-extrabold text-white lg:text-5xl"
-                    >
-                        Good afternoon, {{ roleGreeting }}.
+                    <p class="text-sm font-semibold text-[#a9e8c3]">
+                        {{ roleGreeting }}
+                    </p>
+                    <h1 class="mt-2 text-3xl font-bold text-white">
+                        {{
+                            isLecturer
+                                ? 'Your teaching overview'
+                                : 'Quality Assurance workspace'
+                        }}
                     </h1>
-                    <p class="mt-4 max-w-4xl text-lg text-white/82">
-                        7 reports awaiting your approval. 3 schools have not
-                        submitted this week.
+                    <p class="mt-3 max-w-3xl text-sm leading-6 text-white/75">
+                        {{
+                            isLecturer
+                                ? 'Assigned courses, teaching workload, and published evaluation reports for your account.'
+                                : 'Records and actions within your assigned quality assurance responsibilities.'
+                        }}
                     </p>
                 </div>
-
-                <div class="flex flex-wrap gap-5">
-                    <Button
-                        v-if="page.props.qualityProfile?.canViewApprovalQueue"
-                        as-child
-                        class="h-11 rounded-lg bg-[#eef3f8] px-5 text-base font-bold text-[#071126] hover:bg-white"
-                    >
-                        <Link href="/quality/approvals">View queue</Link>
-                    </Button>
-                    <Button
-                        v-else-if="page.props.qualityProfile?.canUploadReports"
-                        as-child
-                        class="h-11 rounded-lg bg-[#eef3f8] px-5 text-base font-bold text-[#071126] hover:bg-white"
-                    >
-                        <Link href="/quality/reports/create">Upload report</Link>
-                    </Button>
-                    <Button
-                        v-if="page.props.qualityProfile?.canApproveReports"
-                        class="h-11 rounded-lg bg-white px-5 text-base font-bold text-[#007a2f] hover:bg-[#eef3f8]"
-                    >
-                        Approve all
-                        <CheckCircle2 class="ml-2 size-5" />
-                    </Button>
-                </div>
-            </div>
-        </div>
-
-        <div class="grid gap-5 xl:grid-cols-4">
-            <div
-                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
-            >
-                <div class="flex items-start justify-between">
-                    <span
-                        class="flex size-12 items-center justify-center rounded-lg bg-[#e8f3ed] text-[#007a2f]"
-                    >
-                        <FileText class="size-6" />
-                    </span>
-                    <span
-                        class="rounded-full border border-[#dbe1e8] px-3 py-1 text-sm font-bold text-[#071126]"
-                    >
-                        <ArrowUpRight class="mr-1 inline size-4" /> +12.4%
-                    </span>
-                </div>
-                <div class="mt-7 text-4xl font-extrabold text-[#071126]">
-                    1,284
-                </div>
-                <div class="mt-2 text-base text-[#5f6b7d]">Total Reports</div>
-            </div>
-
-            <div
-                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
-            >
-                <div class="flex items-start justify-between">
-                    <Check class="mt-3 size-6 text-[#25b977]" />
-                    <span
-                        class="rounded-full border border-[#dbe1e8] px-3 py-1 text-sm font-bold text-[#071126]"
-                    >
-                        <ArrowUpRight class="mr-1 inline size-4" /> +8.2%
-                    </span>
-                </div>
-                <div class="mt-7 text-4xl font-extrabold text-[#071126]">
-                    1,041
-                </div>
-                <div class="mt-2 text-base text-[#5f6b7d]">Approved</div>
-            </div>
-
-            <div
-                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
-            >
-                <div class="flex items-start justify-between">
-                    <Clock3 class="mt-3 size-6 text-[#071126]" />
-                    <span
-                        class="rounded-full border border-[#dbe1e8] px-3 py-1 text-sm font-bold text-[#071126]"
-                    >
-                        <ArrowUpRight class="mr-1 inline size-4" /> -3.1%
-                    </span>
-                </div>
-                <div class="mt-7 text-4xl font-extrabold text-[#071126]">
-                    187
-                </div>
-                <div class="mt-2 text-base text-[#5f6b7d]">Pending</div>
-            </div>
-
-            <div
-                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
-            >
-                <div class="flex items-start justify-between">
-                    <TrendingUp class="mt-3 size-6 text-[#071126]" />
-                    <span
-                        class="rounded-full border border-[#dbe1e8] px-3 py-1 text-sm font-bold text-[#071126]"
-                    >
-                        <ArrowUpRight class="mr-1 inline size-4" /> -0.6d
-                    </span>
-                </div>
-                <div class="mt-7 text-4xl font-extrabold text-[#071126]">
-                    2.4d
-                </div>
-                <div class="mt-2 text-base text-[#5f6b7d]">Avg. Turnaround</div>
-            </div>
-        </div>
-
-        <div class="grid gap-5 xl:grid-cols-[2fr_1fr]">
-            <section
-                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
-            >
-                <div class="flex items-start justify-between">
-                    <div>
-                        <h2 class="text-2xl font-extrabold text-[#071126]">
-                            Submissions vs Approvals
-                        </h2>
-                        <p class="mt-1 text-base text-[#5f6b7d]">
-                            Last 7 months
-                        </p>
-                    </div>
-                    <span class="text-sm font-bold text-[#071126]">
-                        This year
-                    </span>
-                </div>
-
-                <div
-                    class="mt-12 h-72 rounded-xl border border-dashed border-[#dbe1e8] p-8"
+                <Button
+                    as-child
+                    class="h-11 border border-white/25 bg-white text-[#064d2b] hover:bg-[#eefaf3]"
                 >
-                    <div class="flex h-full items-end gap-7">
-                        <div class="h-[42%] flex-1 rounded-t-xl bg-[#4f7df3]" />
-                        <div class="h-[58%] flex-1 rounded-t-xl bg-[#20c887]" />
-                        <div class="h-[46%] flex-1 rounded-t-xl bg-[#4f7df3]" />
-                        <div class="h-[68%] flex-1 rounded-t-xl bg-[#20c887]" />
-                        <div class="h-[72%] flex-1 rounded-t-xl bg-[#4f7df3]" />
-                        <div class="h-[82%] flex-1 rounded-t-xl bg-[#20c887]" />
-                    </div>
-                </div>
-            </section>
-
-            <section
-                class="rounded-xl border border-[#dbe1e8] bg-white p-7 shadow-sm"
+                    <Link :href="primaryAction.href">
+                        <component :is="primaryAction.icon" class="h-4 w-4" />
+                        {{ primaryAction.label }}
+                        <ArrowRight class="h-4 w-4" />
+                    </Link>
+                </Button>
+            </div>
+            <div
+                class="grid border-t border-white/15 bg-[#043d22] sm:grid-cols-2"
             >
-                <h2 class="text-2xl font-extrabold text-[#071126]">
-                    By School
-                </h2>
-                <p class="mt-1 text-base text-[#5f6b7d]">Approved reports</p>
-
-                <div class="mt-12 space-y-8">
-                    <div class="grid grid-cols-[140px_1fr] items-center gap-4">
-                        <span class="text-xl text-[#5f6b7d]">Medicine</span>
-                        <div class="h-12 rounded-r-xl bg-[#4f7df3]" />
+                <div class="px-6 py-4 sm:px-8">
+                    <div class="text-xs font-semibold text-white/60 uppercase">
+                        Account scope
                     </div>
-                    <div class="grid grid-cols-[140px_1fr] items-center gap-4">
-                        <span class="text-xl text-[#5f6b7d]">Nursing</span>
-                        <div class="h-12 w-4/5 rounded-r-xl bg-[#20c887]" />
-                    </div>
-                    <div class="grid grid-cols-[140px_1fr] items-center gap-4">
-                        <span class="text-xl text-[#5f6b7d]">
-                            Public Health
-                        </span>
-                        <div class="h-12 w-3/5 rounded-r-xl bg-[#ffc857]" />
+                    <div class="mt-1 text-sm font-medium text-white">
+                        {{ roleGreeting }}
                     </div>
                 </div>
-            </section>
-        </div>
+                <div
+                    class="border-t border-white/15 px-6 py-4 sm:border-t-0 sm:border-l sm:px-8"
+                >
+                    <div class="text-xs font-semibold text-white/60 uppercase">
+                        Primary workspace
+                    </div>
+                    <div class="mt-1 text-sm font-medium text-white">
+                        {{ primaryAction.label }}
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section
+            class="grid gap-4 sm:grid-cols-2"
+            :class="!isLecturer && 'xl:grid-cols-4'"
+        >
+            <div
+                class="rounded-md border border-[#cbdbe1] bg-white p-5 shadow-sm"
+            >
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <div class="text-sm font-medium text-muted-foreground">
+                            Assigned courses
+                        </div>
+                        <div class="mt-3 text-3xl font-bold text-[#071126]">
+                            {{ props.stats.assignedCourses }}
+                        </div>
+                    </div>
+                    <span
+                        class="flex h-10 w-10 items-center justify-center rounded-md bg-[#e2f2e8] text-[#075b2e]"
+                        ><BookOpenCheck class="h-5 w-5"
+                    /></span>
+                </div>
+                <div
+                    class="mt-5 border-t border-[#e1e8ec] pt-3 text-xs text-muted-foreground"
+                >
+                    Current teaching assignments
+                </div>
+            </div>
+            <div
+                class="rounded-md border border-[#cbdbe1] bg-white p-5 shadow-sm"
+            >
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <div class="text-sm font-medium text-muted-foreground">
+                            Published evaluations
+                        </div>
+                        <div class="mt-3 text-3xl font-bold text-[#071126]">
+                            {{ props.stats.publishedReports }}
+                        </div>
+                    </div>
+                    <span
+                        class="flex h-10 w-10 items-center justify-center rounded-md bg-[#d9edf5] text-[#234d5d]"
+                        ><FileText class="h-5 w-5"
+                    /></span>
+                </div>
+                <div
+                    class="mt-5 border-t border-[#e1e8ec] pt-3 text-xs text-muted-foreground"
+                >
+                    Reports available from My Courses
+                </div>
+            </div>
+            <template v-if="!isLecturer">
+                <div
+                    class="rounded-md border border-[#cbdbe1] bg-white p-5 shadow-sm"
+                >
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <div
+                                class="text-sm font-medium text-muted-foreground"
+                            >
+                                Pending action
+                            </div>
+                            <div class="mt-3 text-3xl font-bold text-[#071126]">
+                                {{ props.stats.pendingReports }}
+                            </div>
+                        </div>
+                        <span
+                            class="flex h-10 w-10 items-center justify-center rounded-md bg-[#fff3d6] text-[#8a5b00]"
+                            ><ClipboardList class="h-5 w-5"
+                        /></span>
+                    </div>
+                    <div
+                        class="mt-5 border-t border-[#e1e8ec] pt-3 text-xs text-muted-foreground"
+                    >
+                        Reports requiring your action
+                    </div>
+                </div>
+                <div
+                    class="rounded-md border border-[#cbdbe1] bg-white p-5 shadow-sm"
+                >
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <div
+                                class="text-sm font-medium text-muted-foreground"
+                            >
+                                Department courses
+                            </div>
+                            <div class="mt-3 text-3xl font-bold text-[#071126]">
+                                {{ props.stats.departmentCourses }}
+                            </div>
+                        </div>
+                        <span
+                            class="flex h-10 w-10 items-center justify-center rounded-md bg-[#f0e8f7] text-[#69417e]"
+                            ><ListPlus class="h-5 w-5"
+                        /></span>
+                    </div>
+                    <div
+                        class="mt-5 border-t border-[#e1e8ec] pt-3 text-xs text-muted-foreground"
+                    >
+                        Courses in your department
+                    </div>
+                </div>
+            </template>
+        </section>
+
+        <section
+            v-if="isSystemAdministrator"
+            class="overflow-hidden rounded-md border border-[#cbdbe1] bg-white shadow-sm"
+        >
+            <div
+                class="flex flex-col gap-3 border-b border-[#dce6e1] bg-[#f3faf6] px-5 py-5 sm:flex-row sm:items-center sm:justify-between"
+            >
+                <div>
+                    <h2
+                        class="flex items-center gap-2 text-lg font-semibold text-[#071126]"
+                    >
+                        <CalendarRange class="h-5 w-5 text-[#087a3d]" />
+                        Academic year statistics
+                    </h2>
+                    <p class="mt-1 text-sm text-muted-foreground">
+                        Report progress across each academic year.
+                    </p>
+                </div>
+                <Button variant="outline" as-child>
+                    <Link href="/quality/academic-years">Manage years</Link>
+                </Button>
+            </div>
+
+            <div v-if="academicYearStats.length" class="overflow-x-auto">
+                <table class="w-full min-w-[820px] text-left text-sm">
+                    <thead
+                        class="bg-[#e4f3ea] text-xs text-[#164d32] uppercase"
+                    >
+                        <tr>
+                            <th class="px-5 py-3 font-semibold">
+                                Academic year
+                            </th>
+                            <th class="px-4 py-3 text-center font-semibold">
+                                Total
+                            </th>
+                            <th class="px-4 py-3 text-center font-semibold">
+                                Draft
+                            </th>
+                            <th class="px-4 py-3 text-center font-semibold">
+                                Supervisor
+                            </th>
+                            <th class="px-4 py-3 text-center font-semibold">
+                                Director
+                            </th>
+                            <th class="px-4 py-3 text-center font-semibold">
+                                Published
+                            </th>
+                            <th class="px-5 py-3 font-semibold">
+                                Publication rate
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[#e1e8ec]">
+                        <tr
+                            v-for="year in academicYearStats"
+                            :key="year.id"
+                            class="hover:bg-[#f8fcfa]"
+                        >
+                            <td class="px-5 py-4">
+                                <div class="font-semibold text-[#071126]">
+                                    {{ year.name }}
+                                </div>
+                                <span
+                                    class="mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize"
+                                    :class="
+                                        year.status === 'active'
+                                            ? 'bg-[#dcf4e5] text-[#087a3d]'
+                                            : 'bg-[#eef1f3] text-[#58646d]'
+                                    "
+                                >
+                                    {{ year.status }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-4 text-center font-semibold">
+                                {{ year.totalReports }}
+                            </td>
+                            <td class="px-4 py-4 text-center">
+                                {{ year.draftReports }}
+                            </td>
+                            <td class="px-4 py-4 text-center">
+                                {{ year.supervisorReview }}
+                            </td>
+                            <td class="px-4 py-4 text-center">
+                                {{ year.directorReview }}
+                            </td>
+                            <td
+                                class="px-4 py-4 text-center font-semibold text-[#087a3d]"
+                            >
+                                {{ year.publishedReports }}
+                            </td>
+                            <td class="px-5 py-4">
+                                <div class="flex min-w-36 items-center gap-3">
+                                    <div
+                                        class="h-2 flex-1 overflow-hidden rounded-full bg-[#e4ece8]"
+                                    >
+                                        <div
+                                            class="h-full rounded-full bg-[#087a3d]"
+                                            :style="{
+                                                width: `${year.publicationRate}%`,
+                                            }"
+                                        />
+                                    </div>
+                                    <span
+                                        class="w-10 text-right font-semibold text-[#164d32]"
+                                    >
+                                        {{ year.publicationRate }}%
+                                    </span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div
+                v-else
+                class="px-5 py-10 text-center text-sm text-muted-foreground"
+            >
+                No academic years have been created yet.
+            </div>
+        </section>
+
+        <section
+            v-if="!isLecturer"
+            class="rounded-md border border-[#cbdbe1] bg-white p-5"
+        >
+            <h2 class="text-lg font-semibold text-[#071126]">
+                Available modules
+            </h2>
+            <div class="mt-4 flex flex-wrap gap-3">
+                <Button
+                    v-if="profile?.canManageCourseAssignments"
+                    variant="outline"
+                    as-child
+                    ><Link href="/quality/course-assignments"
+                        >Course Assignments</Link
+                    ></Button
+                >
+                <Button
+                    v-if="profile?.canManageCourseAssignments"
+                    variant="outline"
+                    as-child
+                    ><Link href="/quality/course-offerings"
+                        >Mount Courses</Link
+                    ></Button
+                >
+                <Button
+                    v-if="profile?.canUploadReports"
+                    variant="outline"
+                    as-child
+                    ><Link href="/quality/reports/create"
+                        >Upload Reports</Link
+                    ></Button
+                >
+                <Button
+                    v-if="profile?.canReviewReports"
+                    variant="outline"
+                    as-child
+                    ><Link href="/quality/reports"
+                        >Supervisor Review</Link
+                    ></Button
+                >
+                <Button
+                    v-if="profile?.canApproveReports"
+                    variant="outline"
+                    as-child
+                    ><Link href="/quality/approvals"
+                        >Director Review</Link
+                    ></Button
+                >
+                <Button
+                    v-if="
+                        profile?.canViewPrintQueue &&
+                        profile.role !== 'lecturer'
+                    "
+                    variant="outline"
+                    as-child
+                    ><Link href="/quality/print-queue"
+                        >Published Reports</Link
+                    ></Button
+                >
+                <Button
+                    v-if="profile?.permissions.includes('view_own_reports')"
+                    variant="outline"
+                    as-child
+                    ><Link href="/quality/my-courses">My Courses</Link></Button
+                >
+            </div>
+        </section>
     </div>
 </template>

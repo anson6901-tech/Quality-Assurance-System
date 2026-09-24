@@ -165,7 +165,10 @@ defineOptions({
             class="flex items-center gap-3 rounded-xl border border-[#9fd8b8] bg-[#f3fbf6] px-5 py-4 text-sm text-[#436453] shadow-sm"
         >
             <Lock class="h-4 w-4 text-[#007a2f]" />
-            <span>This report has entered the review workflow and is locked from editing.</span>
+            <span
+                >This report has entered the review workflow and is locked from
+                editing.</span
+            >
         </div>
 
         <section
@@ -201,28 +204,76 @@ defineOptions({
             </div>
         </section>
 
-        <section
-            v-if="report.reviews.length"
-            class="space-y-4 border-t pt-6"
-        >
+        <section v-if="report.reviews.length" class="space-y-4 border-t pt-6">
             <h2 class="text-base font-semibold">Review history</h2>
-            <div class="divide-y border">
+            <div
+                class="divide-y overflow-hidden rounded-lg border border-[#dcefe4] bg-white"
+            >
                 <div
                     v-for="review in report.reviews"
                     :key="review.id"
-                    class="grid gap-2 p-4 md:grid-cols-[220px_1fr]"
+                    class="grid gap-4 p-4 md:grid-cols-[190px_1fr_1fr]"
                 >
                     <div>
-                        <div class="text-sm font-medium">
+                        <div class="text-sm font-semibold text-[#062b19]">
                             {{ actionLabel(review.action) }}
                         </div>
                         <div class="text-xs text-muted-foreground">
-                            {{ review.actor }} · {{ review.createdAt }}
+                            {{ review.createdAt }}
                         </div>
                     </div>
-                    <p class="text-sm whitespace-pre-wrap text-muted-foreground">
-                        {{ review.note || 'No note was added.' }}
-                    </p>
+                    <div>
+                        <div
+                            class="text-[11px] font-semibold tracking-wide text-[#567565] uppercase"
+                        >
+                            Performed by
+                        </div>
+                        <template v-if="review.actor">
+                            <div
+                                class="mt-1 text-sm font-semibold text-[#062b19]"
+                            >
+                                {{ review.actor.name }}
+                            </div>
+                            <div class="text-xs text-muted-foreground">
+                                {{ review.actor.role || 'System user' }} ·
+                                {{ review.actor.email }}
+                            </div>
+                        </template>
+                        <div v-else class="mt-1 text-sm text-muted-foreground">
+                            Former or unavailable user
+                        </div>
+                        <div
+                            v-if="review.recipient"
+                            class="mt-3 border-t border-[#e6f2eb] pt-2"
+                        >
+                            <div
+                                class="text-[11px] font-semibold tracking-wide text-[#567565] uppercase"
+                            >
+                                Sent to
+                            </div>
+                            <div
+                                class="mt-1 text-sm font-medium text-[#062b19]"
+                            >
+                                {{ review.recipient.name }}
+                            </div>
+                            <div class="text-xs text-muted-foreground">
+                                {{ review.recipient.role || 'System user' }} ·
+                                {{ review.recipient.email }}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div
+                            class="text-[11px] font-semibold tracking-wide text-[#567565] uppercase"
+                        >
+                            Review note
+                        </div>
+                        <p
+                            class="mt-1 text-sm whitespace-pre-wrap text-muted-foreground"
+                        >
+                            {{ review.note || 'No note was added.' }}
+                        </p>
+                    </div>
                 </div>
             </div>
         </section>

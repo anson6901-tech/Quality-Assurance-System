@@ -38,7 +38,17 @@ export type QualityReport = {
         id: number;
         action: string;
         note: string | null;
-        actor: string | null;
+        actor: {
+            id: number;
+            name: string;
+            email: string;
+            role: string | null;
+        } | null;
+        recipient: {
+            name: string;
+            email: string;
+            role: string | null;
+        } | null;
         createdAt: string;
     }>;
     createdAt: string;
