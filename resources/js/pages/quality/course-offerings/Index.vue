@@ -76,9 +76,9 @@ const semesterId = ref(
     activeYear?.semesters[0] ? String(activeYear.semesters[0].id) : '',
 );
 const programId = ref(props.programs[0] ? String(props.programs[0].id) : '');
+const programLevel = ref('100');
 const search = ref('');
 const selectedCourseId = ref<number | null>(null);
-const selectedLevel = ref('');
 const copyOpen = ref(false);
 const removingCourseIds = ref<number[]>([]);
 
@@ -93,16 +93,30 @@ const programCourses = computed(() =>
         const program = props.programs.find(
             (item) => item.id === Number(programId.value),
         );
+
         return (
             !course.level || Number(course.level) <= (program?.maxLevel ?? 0)
         );
     }),
 );
+const availableLevels = computed(() => {
+    return Array.from({ length: 10 }, (_, index) => String((index + 1) * 100));
+});
+const mountedCourseIdsForPeriod = computed(() =>
+    props.offerings
+        .filter(
+            (offering) =>
+                offering.semesterId === Number(semesterId.value) &&
+                offering.programId === Number(programId.value),
+        )
+        .map((offering) => offering.courseId),
+);
 const filteredCourses = computed(() => {
     const term = search.value.trim().toLowerCase();
+
     return programCourses.value.filter(
         (course) =>
-            !form.course_ids.includes(course.id) &&
+            !mountedCourseIdsForPeriod.value.includes(course.id) &&
             term.length > 0 &&
             (course.code.toLowerCase().includes(term) ||
                 course.title.toLowerCase().includes(term) ||
@@ -124,6 +138,7 @@ const selectedCourse = computed(() =>
 const form = useForm({
     program_id: programId.value,
     semester_id: semesterId.value,
+    level: programLevel.value,
     course_ids: [] as number[],
     levels: {} as Record<number, string>,
 });
@@ -144,11 +159,13 @@ const isAssigned = (courseId: number) =>
 const loadMountedCourses = () => {
     form.program_id = programId.value;
     form.semester_id = semesterId.value;
+    form.level = programLevel.value;
     form.course_ids = props.offerings
         .filter(
             (offering) =>
                 offering.semesterId === Number(semesterId.value) &&
                 offering.programId === Number(programId.value) &&
+                offering.level === programLevel.value &&
                 programCourses.value.some(
                     (course) => course.id === offering.courseId,
                 ),
@@ -159,17 +176,24 @@ const loadMountedCourses = () => {
             .filter(
                 (offering) =>
                     offering.semesterId === Number(semesterId.value) &&
-                    offering.programId === Number(programId.value),
+                    offering.programId === Number(programId.value) &&
+                    offering.level === programLevel.value,
             )
             .map((offering) => [offering.courseId, offering.level ?? '']),
     );
     form.clearErrors();
     search.value = '';
     selectedCourseId.value = null;
-    selectedLevel.value = '';
 };
 
-watch([programId, semesterId], loadMountedCourses, { immediate: true });
+watch([programId, semesterId, programLevel], loadMountedCourses, {
+    immediate: true,
+});
+watch(programId, () => {
+    if (!availableLevels.value.includes(programLevel.value)) {
+        programLevel.value = availableLevels.value[0] ?? '';
+    }
+});
 watch(academicYearId, () => {
     semesterId.value = semesters.value[0] ? String(semesters.value[0].id) : '';
 });
@@ -180,24 +204,30 @@ const persist = () =>
     });
 
 const mountSelectedCourse = () => {
-    if (!selectedCourseId.value || !selectedLevel.value) return;
+    if (!selectedCourseId.value || !programLevel.value) {
+        return;
+    }
+
     form.course_ids = [...form.course_ids, selectedCourseId.value];
-    form.levels[selectedCourseId.value] = selectedLevel.value;
+    form.levels[selectedCourseId.value] = programLevel.value;
     search.value = '';
     selectedCourseId.value = null;
-    selectedLevel.value = '';
     persist();
 };
 
 const removeMountedCourse = (courseId: number) => {
-    if (removingCourseIds.value.includes(courseId)) return;
+    if (removingCourseIds.value.includes(courseId)) {
+        return;
+    }
 
     const course = mountedCourses.value.find((item) => item.id === courseId);
     const warning = isAssigned(courseId)
         ? ' This will also remove its lecturer assignments for this program and semester.'
         : '';
 
-    if (!window.confirm(`Unmount ${course?.code ?? 'this course'}?${warning}`)) {
+    if (
+        !window.confirm(`Unmount ${course?.code ?? 'this course'}?${warning}`)
+    ) {
         return;
     }
 
@@ -238,6 +268,7 @@ const semesterLabel = (semester: Semester) => {
     const year = props.academicYears.find(
         (item) => item.id === semester.academic_year_id,
     );
+
     return `${year?.name ?? ''} — ${semester.name}`;
 };
 </script>
@@ -252,7 +283,7 @@ const semesterLabel = (semester: Semester) => {
             <Heading
                 variant="small"
                 title="Mount Courses"
-                description="Choose which catalogue courses a program will run in an academic year and semester."
+                description="Choose which catalogue courses a program will run at each level in an academic year and semester."
             />
             <Button
                 type="button"
@@ -266,14 +297,14 @@ const semesterLabel = (semester: Semester) => {
         </div>
 
         <div
-            class="grid gap-4 rounded-xl border border-[#9fd8b8] bg-[#edf9f2] p-4 md:grid-cols-3"
+            class="grid min-w-0 gap-4 rounded-xl border border-[#9fd8b8] bg-[#edf9f2] p-4 sm:grid-cols-2 xl:grid-cols-4"
         >
-            <div class="grid gap-2">
+            <div class="grid min-w-0 gap-2">
                 <Label for="mount-year">Academic year</Label>
                 <select
                     id="mount-year"
                     v-model="academicYearId"
-                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                    class="h-10 w-full min-w-0 rounded-md border bg-white px-3 text-sm"
                 >
                     <option
                         v-for="year in props.academicYears"
@@ -285,12 +316,12 @@ const semesterLabel = (semester: Semester) => {
                     </option>
                 </select>
             </div>
-            <div class="grid gap-2">
+            <div class="grid min-w-0 gap-2">
                 <Label for="mount-semester">Semester</Label>
                 <select
                     id="mount-semester"
                     v-model="semesterId"
-                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                    class="h-10 w-full min-w-0 rounded-md border bg-white px-3 text-sm"
                 >
                     <option
                         v-for="semester in semesters"
@@ -301,12 +332,12 @@ const semesterLabel = (semester: Semester) => {
                     </option>
                 </select>
             </div>
-            <div class="grid gap-2">
+            <div class="grid min-w-0 gap-2">
                 <Label for="mount-program">Program</Label>
                 <select
                     id="mount-program"
                     v-model="programId"
-                    class="h-10 rounded-md border bg-white px-3 text-sm"
+                    class="h-10 w-full min-w-0 truncate rounded-md border bg-white px-3 text-sm"
                 >
                     <option
                         v-for="program in props.programs"
@@ -314,6 +345,22 @@ const semesterLabel = (semester: Semester) => {
                         :value="program.id"
                     >
                         {{ program.name }} ({{ program.code }})
+                    </option>
+                </select>
+            </div>
+            <div class="grid min-w-0 gap-2">
+                <Label for="mount-level">Level</Label>
+                <select
+                    id="mount-level"
+                    v-model="programLevel"
+                    class="h-10 w-full min-w-0 rounded-md border bg-white px-3 text-sm"
+                >
+                    <option
+                        v-for="level in availableLevels"
+                        :key="level"
+                        :value="level"
+                    >
+                        Level {{ level }}
                     </option>
                 </select>
             </div>
@@ -329,7 +376,8 @@ const semesterLabel = (semester: Semester) => {
                         Find a course to mount
                     </h3>
                     <p class="text-sm text-muted-foreground">
-                        Search the catalogue, choose one course, then mount it.
+                        Search the catalogue, choose one course, then mount it
+                        for Level {{ programLevel }}.
                     </p>
                 </div>
                 <div class="mt-4 flex flex-col gap-2 sm:flex-row">
@@ -350,35 +398,13 @@ const semesterLabel = (semester: Semester) => {
                         class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
                         :disabled="
                             !selectedCourseId ||
-                            !selectedLevel ||
+                            !programLevel ||
                             form.processing
                         "
                         @click="mountSelectedCourse"
                     >
                         <Plus /> Mount course
                     </Button>
-                </div>
-                <div v-if="selectedCourse" class="mt-3 grid max-w-xs gap-1">
-                    <Label for="offering-level">Program level</Label>
-                    <select
-                        id="offering-level"
-                        v-model="selectedLevel"
-                        class="h-10 rounded-md border bg-white px-3 text-sm"
-                    >
-                        <option value="" disabled>Select level</option>
-                        <option
-                            v-for="level in Math.floor(
-                                (props.programs.find(
-                                    (program) =>
-                                        program.id === Number(programId),
-                                )?.maxLevel ?? 0) / 100,
-                            )"
-                            :key="level"
-                            :value="String(level * 100)"
-                        >
-                            Level {{ level * 100 }}
-                        </option>
-                    </select>
                 </div>
                 <div
                     v-if="search.trim()"
@@ -394,10 +420,7 @@ const semesterLabel = (semester: Semester) => {
                                 ? 'bg-[#e3f6eb] ring-1 ring-[#007a2f] ring-inset'
                                 : ''
                         "
-                        @click="
-                            selectedCourseId = course.id;
-                            selectedLevel = course.level ?? '';
-                        "
+                        @click="selectedCourseId = course.id"
                     >
                         <span class="min-w-0 flex-1">
                             <span class="block font-medium">
@@ -440,6 +463,7 @@ const semesterLabel = (semester: Semester) => {
                     </h3>
                     <p class="text-sm text-muted-foreground">
                         {{ mountedCourses.length }} courses currently mounted
+                        for Level {{ programLevel }}
                     </p>
                 </div>
                 <div class="divide-y rounded-lg border">

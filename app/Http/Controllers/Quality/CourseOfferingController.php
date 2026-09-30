@@ -8,7 +8,6 @@ use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\Program;
 use App\Models\QualityReport;
-use App\Models\Semester;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -92,6 +91,7 @@ class CourseOfferingController extends Controller
         $validated = $request->validate([
             'program_id' => ['required', 'integer', Rule::exists('programs', 'id')],
             'semester_id' => ['required', 'integer', Rule::exists('semesters', 'id')],
+            'level' => ['sometimes', 'nullable', 'string', 'regex:/^[1-9][0-9]*00$/'],
             'course_ids' => ['present', 'array'],
             'course_ids.*' => ['integer', Rule::exists('courses', 'id')],
             'levels' => ['sometimes', 'array'],
@@ -108,9 +108,13 @@ class CourseOfferingController extends Controller
             ->count();
         abort_unless($validCount === $courseIds->count(), 422);
 
+        $selectedLevel = $validated['level'] ?? null;
+        abort_if($selectedLevel && (int) $selectedLevel > 1000, 422);
+
         $currentlyMounted = CourseOffering::query()
             ->where('semester_id', $validated['semester_id'])
             ->where('program_id', $program->id)
+            ->when($selectedLevel, fn ($query) => $query->where('level', $selectedLevel))
             ->pluck('course_id');
         $toRemove = $currentlyMounted->diff($courseIds);
         $assignedRemoval = DB::table('course_lecturer')
@@ -125,17 +129,20 @@ class CourseOfferingController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($validated, $program, $courseIds, $toRemove): void {
+        DB::transaction(function () use ($validated, $program, $courseIds, $toRemove, $selectedLevel): void {
             CourseOffering::query()
                 ->where('semester_id', $validated['semester_id'])
                 ->where('program_id', $program->id)
+                ->when($selectedLevel, fn ($query) => $query->where('level', $selectedLevel))
                 ->whereIn('course_id', $toRemove)
                 ->delete();
 
             $courses = Course::query()->whereIn('id', $courseIds)->get()->keyBy('id');
-            $courseIds->each(function (int $courseId) use ($validated, $program, $courses): void {
-                $level = ($validated['levels'] ?? [])[$courseId] ?? $courses[$courseId]?->level;
-                abort_unless($level && (int) $level <= $program->max_level, 422);
+            $courseIds->each(function (int $courseId) use ($validated, $program, $courses, $selectedLevel): void {
+                $level = $selectedLevel
+                    ?? ($validated['levels'] ?? [])[$courseId]
+                    ?? $courses[$courseId]?->level;
+                abort_unless($level && (int) $level <= 1000, 422);
                 CourseOffering::updateOrCreate([
                     'course_id' => $courseId,
                     'program_id' => $program->id,

@@ -16,10 +16,10 @@ it('shows document roles on the user management page', function () {
         ->assertInertia(fn (Assert $page) => $page
             ->component('quality/users/Index')
             ->where('roles.1.value', UniversityRole::QaSupervisor->value)
-            ->where('roles.4.value', UniversityRole::IctAdmin->value)
-            ->where('roles.5.value', UniversityRole::Dean->value)
-            ->where('roles.6.value', UniversityRole::Hod->value)
-            ->where('roles.8.value', UniversityRole::AppointmentCommittee->value));
+            ->where('roles.3.value', UniversityRole::IctAdmin->value)
+            ->where('roles.4.value', UniversityRole::Dean->value)
+            ->where('roles.5.value', UniversityRole::Hod->value)
+            ->where('roles.7.value', UniversityRole::AppointmentCommittee->value));
 });
 
 it('creates dean hod and appointment committee users with the correct scope', function () {

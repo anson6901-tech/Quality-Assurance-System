@@ -25,8 +25,11 @@ return new class extends Migration
 
         Schema::table('course_lecturer', function (Blueprint $table) {
             $table->foreignId('semester_id')->nullable()->after('course_id')->constrained()->cascadeOnDelete();
-            $table->dropUnique(['course_id', 'lecturer_id']);
             $table->unique(['course_id', 'lecturer_id', 'semester_id']);
+        });
+
+        Schema::table('course_lecturer', function (Blueprint $table) {
+            $table->dropUnique(['course_id', 'lecturer_id']);
         });
 
         foreach (DB::table('academic_years')->get(['id']) as $academicYear) {

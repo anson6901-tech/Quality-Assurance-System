@@ -53,7 +53,6 @@ class QualityRolePermission extends Model
             UniversityRole::QaOfficer->value => ['view_reports', 'upload_reports'],
             UniversityRole::QaSupervisor->value => ['view_reports', 'view_approval_queue', 'review_reports'],
             UniversityRole::QaDirector->value => ['manage_users', 'manage_structure', 'view_reports', 'upload_reports', 'view_approval_queue', 'approve_reports', 'view_all_reports', 'view_print_queue', 'view_audit_logs'],
-            UniversityRole::UploadOnly->value => ['view_reports', 'upload_reports'],
             UniversityRole::IctAdmin->value => [
                 'manage_users',
                 'manage_structure',
@@ -86,29 +85,39 @@ class QualityRolePermission extends Model
 
         return collect([
             [
-                'label' => 'Reports',
-                'description' => 'Open the report module and upload lecturer reports',
+                'label' => 'Upload Reports',
+                'description' => 'Open assigned courses and use report upload and submission actions',
                 'permissions' => ['view_reports', 'upload_reports'],
             ],
             [
-                'label' => 'Approvals',
-                'description' => 'View reports waiting for review and approve them',
+                'label' => 'Review Workflow',
+                'description' => 'Use supervisor review, return, forward, approve, and publish actions',
                 'permissions' => ['view_approval_queue', 'review_reports', 'approve_reports'],
             ],
             [
-                'label' => 'Print Queue',
-                'description' => 'Open approved reports ready for printing',
-                'permissions' => ['view_print_queue'],
+                'label' => 'Published Reports',
+                'description' => 'Open published reports and define which report records are visible',
+                'permissions' => ['view_print_queue', 'view_all_reports', 'view_school_reports', 'view_department_reports', 'view_own_reports'],
             ],
             [
-                'label' => 'Report Scope',
-                'description' => 'Control which approved reports this role can see',
-                'permissions' => ['view_all_reports', 'view_school_reports', 'view_department_reports', 'view_own_reports'],
+                'label' => 'User Management',
+                'description' => 'Create, edit, activate, deactivate, delete, and assign roles to users',
+                'permissions' => ['manage_users'],
             ],
             [
-                'label' => 'Administration',
-                'description' => 'Manage users, academic structure, and audit logs',
-                'permissions' => ['manage_users', 'manage_structure', 'manage_course_assignments', 'view_audit_logs'],
+                'label' => 'Academic Structure',
+                'description' => 'Create and maintain schools, departments, programs, courses, and academic years',
+                'permissions' => ['manage_structure'],
+            ],
+            [
+                'label' => 'Course Assignments',
+                'description' => 'Mount courses and assign, split, or combine lecturer course offerings',
+                'permissions' => ['manage_course_assignments'],
+            ],
+            [
+                'label' => 'Audit Logs',
+                'description' => 'Open and export the record of administrative actions',
+                'permissions' => ['view_audit_logs'],
             ],
         ])
             ->map(fn (array $group): array => [

@@ -12,7 +12,6 @@ import {
 import { computed, nextTick, ref, watch } from 'vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
-import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import type { AcademicYearOption, CourseOption } from '@/types';
 
 interface CourseWithLecturers extends CourseOption {
@@ -173,7 +173,7 @@ const schools = computed(() => [
     ),
 ]);
 
-const departments = computed(() => [
+const availableDepartments = computed(() => [
     ...new Set(
         coursesForSemester.value
             .filter(
@@ -259,14 +259,6 @@ const levels = computed(() =>
                 .filter(Boolean),
         ),
     ].sort((left, right) => Number(left) - Number(right)),
-);
-
-const selectedCourses = computed(() =>
-    props.courses.filter(
-        (course) =>
-            form.course_ids.includes(course.id) &&
-            String(course.program?.id) === form.program_id,
-    ),
 );
 
 const canSubmit = computed(
@@ -462,7 +454,9 @@ const toggleAllVisibleDrafts = () => {
 };
 
 const pushSelectedToSupervisor = () => {
-    if (selectedReportIds.value.length === 0) return;
+    if (selectedReportIds.value.length === 0) {
+        return;
+    }
 
     pendingPushReportIds.value = [...selectedReportIds.value];
     pushForm.supervisor_id = '';
@@ -478,7 +472,9 @@ const pushToSupervisor = (reportId: number) => {
 };
 
 const confirmDeleteDraft = () => {
-    if (!draftToDelete.value) return;
+    if (!draftToDelete.value) {
+        return;
+    }
 
     deleteDraftForm.delete(`/quality/reports/${draftToDelete.value}`, {
         preserveScroll: true,
@@ -554,6 +550,7 @@ const chooseFile = (event: Event) => {
 
 const clearFile = () => {
     form.report_file = null;
+
     if (fileInput.value) {
         fileInput.value.value = '';
     }
@@ -674,7 +671,7 @@ const applyFilters = () => {
                     >
                         <option value="">All departments</option>
                         <option
-                            v-for="department in departments"
+                            v-for="department in availableDepartments"
                             :key="department"
                             :value="department"
                         >
@@ -884,10 +881,10 @@ const applyFilters = () => {
                         </label>
 
                         <div
-                            class="overflow-hidden rounded-md border border-[#9fb7c1]"
+                            class="max-h-96 overflow-scroll overscroll-contain rounded-md border border-[#9fb7c1]"
                         >
                             <div
-                                class="hidden grid-cols-[minmax(160px,1.6fr)_minmax(90px,0.65fr)_minmax(64px,0.5fr)_minmax(170px,1.2fr)_minmax(120px,0.8fr)_minmax(190px,1.25fr)_minmax(150px,auto)] gap-0 bg-[#9fb7c1] text-xs font-semibold text-[#294c59] md:grid"
+                                class="sticky top-0 z-10 grid min-w-[1000px] grid-cols-[minmax(160px,1.6fr)_minmax(90px,0.65fr)_minmax(64px,0.5fr)_minmax(170px,1.2fr)_minmax(120px,0.8fr)_minmax(190px,1.25fr)_minmax(150px,auto)] gap-0 bg-[#9fb7c1] text-xs font-semibold text-[#294c59]"
                             >
                                 <div class="bg-[#d9edf5] px-3 py-2">
                                     Program
@@ -903,7 +900,9 @@ const applyFilters = () => {
                                 </div>
                                 <div class="bg-[#d9edf5] px-3 py-2">Action</div>
                             </div>
-                            <div class="divide-y divide-[#cbdbe1] bg-white">
+                            <div
+                                class="min-w-[1000px] divide-y divide-[#cbdbe1] bg-white"
+                            >
                                 <div
                                     v-if="
                                         row.variants.length > 1 &&
@@ -933,7 +932,7 @@ const applyFilters = () => {
                                 <div
                                     v-for="variant in visibleOfferingRows(row)"
                                     :key="variant.course.offeringId"
-                                    class="grid gap-3 py-3 text-sm md:grid-cols-[minmax(160px,1.6fr)_minmax(90px,0.65fr)_minmax(64px,0.5fr)_minmax(170px,1.2fr)_minmax(120px,0.8fr)_minmax(190px,1.25fr)_minmax(150px,auto)] md:items-center md:gap-0"
+                                    class="grid grid-cols-[minmax(160px,1.6fr)_minmax(90px,0.65fr)_minmax(64px,0.5fr)_minmax(170px,1.2fr)_minmax(120px,0.8fr)_minmax(190px,1.25fr)_minmax(150px,auto)] items-center gap-0 py-3 text-sm"
                                 >
                                     <div
                                         class="px-3 font-medium text-[#243d47]"

@@ -7,7 +7,6 @@ import {
     Download,
     Eye,
     Lock,
-    Plus,
     Printer,
     RotateCcw,
     Split,
@@ -15,16 +14,8 @@ import {
 } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import Heading from '@/components/Heading.vue';
-import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import {
     Dialog,
     DialogContent,
@@ -33,7 +24,15 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import type { QualityReport } from '@/types';
 
 type FilterOption = {
@@ -210,6 +209,7 @@ const submitWorkflow = () => {
 
     if (workflowAction.value === 'delete') {
         workflowForm.delete(`/quality/reports/${reportId}`, options);
+
         return;
     }
 
@@ -306,7 +306,9 @@ const toggleForwardSelection = (reportId: number) => {
         : [...selectedReportIds.value, reportId];
 };
 const openBulkForward = (reportIds = selectedReportIds.value) => {
-    if (reportIds.length === 0) return;
+    if (reportIds.length === 0) {
+        return;
+    }
 
     bulkForwardForm.report_ids = [...reportIds];
     bulkForwardForm.note = '';

@@ -11,7 +11,6 @@ return new class extends Migration
     {
         Schema::table('course_offerings', function (Blueprint $table) {
             $table->foreignId('program_id')->nullable()->after('course_id')->constrained()->cascadeOnDelete();
-            $table->dropUnique(['course_id', 'semester_id']);
         });
 
         DB::table('course_offerings')->orderBy('id')->each(function (object $offering): void {
@@ -23,9 +22,12 @@ return new class extends Migration
             $table->unique(['course_id', 'program_id', 'semester_id']);
         });
 
+        Schema::table('course_offerings', function (Blueprint $table) {
+            $table->dropUnique(['course_id', 'semester_id']);
+        });
+
         Schema::table('course_lecturer', function (Blueprint $table) {
             $table->foreignId('program_id')->nullable()->after('course_id')->constrained()->nullOnDelete();
-            $table->dropUnique(['course_id', 'lecturer_id', 'semester_id']);
         });
 
         DB::table('course_lecturer')->orderBy('id')->each(function (object $assignment): void {
@@ -35,6 +37,10 @@ return new class extends Migration
 
         Schema::table('course_lecturer', function (Blueprint $table) {
             $table->unique(['course_id', 'program_id', 'lecturer_id', 'semester_id'], 'course_program_lecturer_semester_unique');
+        });
+
+        Schema::table('course_lecturer', function (Blueprint $table) {
+            $table->dropUnique(['course_id', 'lecturer_id', 'semester_id']);
         });
     }
 

@@ -9,6 +9,7 @@ import {
     BookMarked,
     GraduationCap,
     History,
+    KeyRound,
     LayoutGrid,
     Layers3,
     ListPlus,
@@ -130,9 +131,14 @@ const administrationNavItems = computed<NavItem[]>(() => [
                   icon: Users,
               },
               {
-                  title: 'Roles & Rights',
-                  href: '/quality/roles-rights',
+                  title: 'Roles',
+                  href: '/quality/roles',
                   icon: ShieldCheck,
+              },
+              {
+                  title: 'Permissions',
+                  href: '/quality/permissions',
+                  icon: KeyRound,
               },
           ]
         : []),

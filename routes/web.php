@@ -100,6 +100,11 @@ Route::middleware(['auth', 'verified'])
         Route::post('roles-rights', [RoleRightController::class, 'store'])->name('roles-rights.store');
         Route::patch('roles-rights/{role}', [RoleRightController::class, 'update'])->name('roles-rights.update');
         Route::delete('roles-rights/{role}', [RoleRightController::class, 'destroy'])->name('roles-rights.destroy');
+        Route::get('roles', [RoleRightController::class, 'roles'])->name('roles.index');
+        Route::post('roles', [RoleRightController::class, 'store'])->name('roles.store');
+        Route::delete('roles/{role}', [RoleRightController::class, 'destroy'])->name('roles.destroy');
+        Route::get('permissions', [RoleRightController::class, 'permissions'])->name('permissions.index');
+        Route::patch('permissions/{role}', [RoleRightController::class, 'updatePermissions'])->name('permissions.update');
 
         Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
         Route::get('audit-logs/export', [AuditLogController::class, 'export'])->name('audit-logs.export');

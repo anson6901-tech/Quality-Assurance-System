@@ -1,13 +1,6 @@
 import { usePage } from '@inertiajs/vue3';
-import {
-    computed,
-    onBeforeUnmount,
-    onMounted,
-    ref,
-    toValue,
-    watch,
-    type MaybeRefOrGetter,
-} from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, toValue, watch } from 'vue';
+import type { MaybeRefOrGetter } from 'vue';
 
 type PeriodValue = string | number | null | undefined;
 
@@ -18,6 +11,7 @@ export function useCourseOfferingSplits(
     const page = usePage();
     const splitCourseCodes = ref<string[]>([]);
     const storageVersion = ref(0);
+    const isMounted = ref(false);
     const keyForPeriod = (year: PeriodValue, semester: PeriodValue) =>
         [
             'qa-course-assignment-splits',
@@ -67,7 +61,11 @@ export function useCourseOfferingSplits(
         year: PeriodValue,
         semester: PeriodValue,
     ) => {
-        storageVersion.value;
+        void storageVersion.value;
+
+        if (!isMounted.value) {
+            return false;
+        }
 
         return readStoredCodes(keyForPeriod(year, semester)).includes(
             courseCode,
@@ -93,18 +91,25 @@ export function useCourseOfferingSplits(
         if (event.key === storageKey.value) {
             splitCourseCodes.value = readStoredCodes(storageKey.value);
         }
+
         storageVersion.value++;
     };
 
     watch(
         storageKey,
         (key) => {
-            splitCourseCodes.value = readStoredCodes(key);
+            if (isMounted.value) {
+                splitCourseCodes.value = readStoredCodes(key);
+            }
         },
         { immediate: true },
     );
 
-    onMounted(() => window.addEventListener('storage', syncFromStorage));
+    onMounted(() => {
+        isMounted.value = true;
+        splitCourseCodes.value = readStoredCodes(storageKey.value);
+        window.addEventListener('storage', syncFromStorage);
+    });
     onBeforeUnmount(() =>
         window.removeEventListener('storage', syncFromStorage),
     );

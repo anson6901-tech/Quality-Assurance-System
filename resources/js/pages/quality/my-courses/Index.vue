@@ -3,10 +3,10 @@ import { Head } from '@inertiajs/vue3';
 import { Combine, Download, Eye, Printer, Split } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import Heading from '@/components/Heading.vue';
-import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 
 type CourseRow = {
     key: string;

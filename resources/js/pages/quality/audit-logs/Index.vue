@@ -79,7 +79,9 @@ const detailItems = (log: AuditLog) => {
 
     if (log.metadata?.target) {
         const target = log.metadata.target;
-        items.push(`Target: ${target.type ?? 'Record'} ${target.label ?? target.value ?? target.id ?? ''}`.trim());
+        items.push(
+            `Target: ${target.type ?? 'Record'} ${target.label ?? target.value ?? target.id ?? ''}`.trim(),
+        );
     }
 
     if (log.metadata?.actor?.role) {
@@ -87,7 +89,9 @@ const detailItems = (log: AuditLog) => {
     }
 
     if (log.metadata?.submitted?.sensitive_fields_present?.length) {
-        items.push(`Sensitive input present: ${log.metadata.submitted.sensitive_fields_present.join(', ')}`);
+        items.push(
+            `Sensitive input present: ${log.metadata.submitted.sensitive_fields_present.join(', ')}`,
+        );
     }
 
     return items;
@@ -109,7 +113,9 @@ defineOptions({
     <Head title="Audit Logs" />
 
     <section class="space-y-6">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div
+            class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        >
             <Heading
                 variant="small"
                 title="Audit Logs"
@@ -194,12 +200,17 @@ defineOptions({
                         class="space-y-1 text-xs text-muted-foreground"
                     >
                         <div
-                            v-for="(value, field) in log.metadata.submitted.fields"
+                            v-for="(value, field) in log.metadata.submitted
+                                .fields"
                             :key="field"
                             class="grid grid-cols-[140px_1fr] gap-2"
                         >
-                            <span class="font-medium text-foreground">{{ field }}</span>
-                            <span class="break-words">{{ formatFieldValue(value) }}</span>
+                            <span class="font-medium text-foreground">{{
+                                field
+                            }}</span>
+                            <span class="break-words">{{
+                                formatFieldValue(value)
+                            }}</span>
                         </div>
                     </div>
                 </div>

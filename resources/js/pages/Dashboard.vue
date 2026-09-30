@@ -44,36 +44,46 @@ const isSystemAdministrator = computed(
 );
 
 const primaryAction = computed(() => {
-    if (profile.value?.canApproveReports)
+    if (profile.value?.canApproveReports) {
         return {
             label: 'Open Director Review',
             href: '/quality/approvals',
             icon: CheckCircle2,
         };
-    if (profile.value?.canReviewReports)
+    }
+
+    if (profile.value?.canReviewReports) {
         return {
             label: 'Open Supervisor Review',
             href: '/quality/reports',
             icon: ClipboardList,
         };
-    if (profile.value?.canUploadReports)
+    }
+
+    if (profile.value?.canUploadReports) {
         return {
             label: 'Upload Reports',
             href: '/quality/reports/create',
             icon: Upload,
         };
-    if (profile.value?.canManageCourseAssignments)
+    }
+
+    if (profile.value?.canManageCourseAssignments) {
         return {
             label: 'Assign Courses',
             href: '/quality/course-assignments',
             icon: Users,
         };
-    if (profile.value?.permissions.includes('view_own_reports'))
+    }
+
+    if (profile.value?.permissions.includes('view_own_reports')) {
         return {
             label: 'View My Courses',
             href: '/quality/my-courses',
             icon: BookOpenCheck,
         };
+    }
+
     return {
         label: 'View Published Reports',
         href: '/quality/print-queue',

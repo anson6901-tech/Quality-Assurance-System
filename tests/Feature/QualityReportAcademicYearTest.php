@@ -49,7 +49,7 @@ it('shows both upload and reports sidebar items for roles that can upload and re
 });
 
 it('allows an upload-only role to view course assignments for report planning', function () {
-    $user = User::factory()->create(['university_role' => UniversityRole::UploadOnly]);
+    $user = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
     AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
 
     $this->actingAs($user)
@@ -72,7 +72,7 @@ it('shows an empty course assignment page before academic years are configured',
 });
 
 it('allows an upload-only role to upload reports for courses with assigned lecturers', function () {
-    $user = User::factory()->create(['university_role' => UniversityRole::UploadOnly]);
+    $user = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
     $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
     $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);

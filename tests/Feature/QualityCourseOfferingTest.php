@@ -9,8 +9,8 @@ use App\Models\Program;
 use App\Models\QualityReport;
 use App\Models\School;
 use App\Models\User;
-use Inertia\Testing\AssertableInertia as Assert;
 use Illuminate\Support\Facades\DB;
+use Inertia\Testing\AssertableInertia as Assert;
 
 function offeringStructure(): array
 {
@@ -76,6 +76,72 @@ test('an administrator can mount courses and only mounted courses appear for ass
             ->component('quality/course-assignments/Index')
             ->has('courses', 1)
             ->where('courses.0.id', $data['course']->id));
+});
+
+test('saving mounted courses for one program level preserves the other levels', function () {
+    $data = offeringStructure();
+    $administrator = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
+    $semester = $data['currentYear']->semesters()->firstOrFail();
+    $secondCourse = Course::create([
+        'department_id' => $data['department']->id,
+        'program_id' => $data['program']->id,
+        'code' => 'NURS201',
+        'title' => 'Intermediate Nursing',
+        'course_type' => 'normal',
+        'level' => '200',
+        'credit_hours' => 3,
+    ]);
+
+    CourseOffering::create([
+        'course_id' => $secondCourse->id,
+        'program_id' => $data['program']->id,
+        'semester_id' => $semester->id,
+        'level' => '200',
+    ]);
+
+    $this->actingAs($administrator)
+        ->put('/quality/course-offerings', [
+            'program_id' => $data['program']->id,
+            'semester_id' => $semester->id,
+            'level' => '100',
+            'course_ids' => [$data['course']->id],
+        ])
+        ->assertRedirect('/quality/course-offerings');
+
+    expect(CourseOffering::where([
+        'course_id' => $data['course']->id,
+        'program_id' => $data['program']->id,
+        'semester_id' => $semester->id,
+        'level' => '100',
+    ])->exists())->toBeTrue()
+        ->and(CourseOffering::where([
+            'course_id' => $secondCourse->id,
+            'program_id' => $data['program']->id,
+            'semester_id' => $semester->id,
+            'level' => '200',
+        ])->exists())->toBeTrue();
+});
+
+test('a course can be mounted at level 1000', function () {
+    $data = offeringStructure();
+    $administrator = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
+    $semester = $data['currentYear']->semesters()->firstOrFail();
+
+    $this->actingAs($administrator)
+        ->put('/quality/course-offerings', [
+            'program_id' => $data['program']->id,
+            'semester_id' => $semester->id,
+            'level' => '1000',
+            'course_ids' => [$data['course']->id],
+        ])
+        ->assertRedirect('/quality/course-offerings');
+
+    expect(CourseOffering::where([
+        'course_id' => $data['course']->id,
+        'program_id' => $data['program']->id,
+        'semester_id' => $semester->id,
+        'level' => '1000',
+    ])->exists())->toBeTrue();
 });
 
 test('mounted courses can be copied to an upcoming academic year', function () {
@@ -221,7 +287,7 @@ test('an HOD can only mount courses for programs in their department', function 
 test('lecturer assignments and reports keep the mounted program context', function () {
     $data = offeringStructure();
     $administrator = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
-    $uploader = User::factory()->create(['university_role' => UniversityRole::UploadOnly]);
+    $uploader = User::factory()->create(['university_role' => UniversityRole::QaOfficer]);
     $lecturer = User::factory()->create(['university_role' => UniversityRole::Lecturer]);
     $semester = $data['currentYear']->semesters()->firstOrFail();
     CourseOffering::create([

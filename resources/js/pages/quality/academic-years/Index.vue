@@ -2,8 +2,8 @@
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { Archive, Pencil, Plus, RotateCcw } from 'lucide-vue-next';
 import { ref } from 'vue';
-import Heading from '@/components/Heading.vue';
 import BulkImportDialog from '@/components/BulkImportDialog.vue';
+import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, router, useForm } from '@inertiajs/vue3';
 import {
+    Check,
     Combine,
     RotateCcw,
     Search,
@@ -11,7 +12,6 @@ import {
 import { computed, ref } from 'vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
-import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -22,6 +22,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
 
 type Lecturer = {
     id: number;
@@ -275,16 +276,6 @@ const saveAssignments = () =>
             },
         },
     );
-const openReport = (course: Course) => {
-    reportCourse.value = course;
-    reportForm.reset();
-    reportForm.academic_year_id = selectedAcademicYearId.value;
-    reportForm.semester_id = selectedSemesterId.value;
-    reportForm.program_id = course.program ? String(course.program.id) : '';
-    reportForm.course_ids = [course.id];
-    reportForm.clearErrors();
-    reportOpen.value = true;
-};
 const uploadReport = () =>
     reportForm.post('/quality/reports', {
         forceFormData: true,
@@ -294,10 +285,6 @@ const uploadReport = () =>
             reportCourse.value = null;
         },
     });
-const openApprovals = (course: Course) => {
-    approvalCourse.value = course;
-    approvalsOpen.value = true;
-};
 const approvalAction = (
     report: ApprovalReport,
     action: 'approve' | 'return' | 'unapprove',

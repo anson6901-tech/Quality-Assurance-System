@@ -429,10 +429,12 @@ class QualityReportController extends Controller
                 Storage::disk('public')->delete($filePath);
             }
 
-            Log::error('QualityReportController::store failed', [
-                'exception' => $exception->getMessage(),
-                'trace' => $exception->getTraceAsString(),
-            ]);
+            if (! $exception instanceof ValidationException) {
+                Log::error('QualityReportController::store failed', [
+                    'exception' => $exception->getMessage(),
+                    'trace' => $exception->getTraceAsString(),
+                ]);
+            }
 
             throw $exception;
         }

@@ -44,6 +44,8 @@ class RecordAuditLog
             str_starts_with($path, 'quality/print-queue') => 'Print Queue',
             str_starts_with($path, 'quality/users') => 'Users',
             str_starts_with($path, 'quality/roles-rights') => 'Roles & Rights',
+            str_starts_with($path, 'quality/roles') => 'Roles',
+            str_starts_with($path, 'quality/permissions') => 'Permissions',
             str_starts_with($path, 'quality/audit-logs') => 'Audit Logs',
             str_starts_with($path, 'quality/schools') => 'Schools',
             str_starts_with($path, 'quality/departments') => 'Departments',

@@ -7,21 +7,34 @@ use App\Models\School;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
-it('shows role rights to users with manage user access', function () {
+it('shows separate role and permission modules to users with manage user access', function () {
     $admin = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
 
     $this->actingAs($admin)
-        ->get('/quality/roles-rights')
+        ->get('/quality/roles')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->component('quality/roles-rights/Index')
+            ->component('quality/roles/Index')
             ->has('roles', count(UniversityRole::cases()))
             ->where('roles.0.value', UniversityRole::QaOfficer->value)
-            ->has('permissionOptions')
-            ->has('permissionGroups', 5)
-            ->where('permissionGroups.0.label', 'Reports')
+            ->has('roles.0.permissionCount')
+            ->has('roles.0.userCount'));
+
+    $this->actingAs($admin)
+        ->get('/quality/permissions?role='.UniversityRole::QaOfficer->value)
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('quality/permissions/Index')
+            ->has('roles', count(UniversityRole::cases()))
+            ->has('permissionGroups', 7)
+            ->where('selectedRole', UniversityRole::QaOfficer->value)
+            ->where('permissionGroups.0.label', 'Upload Reports')
             ->where('permissionGroups.0.permissions.0.value', 'view_reports')
             ->where('permissionGroups.0.permissions.1.value', 'upload_reports'));
+
+    $this->actingAs($admin)
+        ->get('/quality/roles-rights')
+        ->assertRedirect('/quality/roles');
 });
 
 it('repairs stale system role rows instead of showing duplicate roles', function () {
@@ -35,12 +48,13 @@ it('repairs stale system role rows instead of showing duplicate roles', function
     ]);
 
     $this->actingAs($admin)
-        ->get('/quality/roles-rights')
+        ->get('/quality/roles')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
+            ->component('quality/roles/Index')
             ->has('roles', count(UniversityRole::cases()))
-            ->where('roles.5.value', UniversityRole::Dean->value)
-            ->where('roles.5.isSystem', true));
+            ->where('roles.4.value', UniversityRole::Dean->value)
+            ->where('roles.4.isSystem', true));
 
     $deanRole = QualityRolePermission::query()
         ->where('role', UniversityRole::Dean->value)
