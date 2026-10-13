@@ -7,6 +7,7 @@ use App\Http\Controllers\Quality\BulkStructureController;
 use App\Http\Controllers\Quality\CourseAssignmentController;
 use App\Http\Controllers\Quality\CourseController;
 use App\Http\Controllers\Quality\CourseOfferingController;
+use App\Http\Controllers\Quality\CourseSearchController;
 use App\Http\Controllers\Quality\DepartmentController;
 use App\Http\Controllers\Quality\MyCourseController;
 use App\Http\Controllers\Quality\ProgramController;
@@ -37,6 +38,7 @@ Route::middleware(['auth', 'verified'])
         Route::get('bulk/{type}/template', [BulkStructureController::class, 'template'])->name('bulk.template');
         Route::post('bulk/{type}', [BulkStructureController::class, 'import'])->name('bulk.import');
 
+        Route::get('course-search', CourseSearchController::class)->name('course-search');
         Route::get('reports', [QualityReportController::class, 'index'])->name('reports.index');
         Route::get('approvals', [QualityReportController::class, 'approvals'])->name('reports.approvals');
         Route::get('print-queue', [QualityReportController::class, 'printQueue'])->name('reports.print-queue');
@@ -67,6 +69,7 @@ Route::middleware(['auth', 'verified'])
         Route::get('programs', [ProgramController::class, 'index'])->name('programs.index');
         Route::post('programs', [ProgramController::class, 'store'])->name('programs.store');
         Route::patch('programs/{program}', [ProgramController::class, 'update'])->name('programs.update');
+        Route::put('programs/{program}/sections', [ProgramController::class, 'updateSections'])->name('programs.sections');
         Route::delete('programs/{program}', [ProgramController::class, 'destroy'])->name('programs.destroy');
 
         Route::get('courses', [CourseController::class, 'index'])->name('courses.index');
@@ -81,6 +84,9 @@ Route::middleware(['auth', 'verified'])
         Route::post('course-offerings/copy', [CourseOfferingController::class, 'copy'])->name('course-offerings.copy');
         Route::get('course-assignments', [CourseAssignmentController::class, 'index'])->name('course-assignments.index');
         Route::put('course-assignments/{course}/lecturers', [CourseAssignmentController::class, 'sync'])->name('course-assignments.sync');
+        Route::post('course-assignments/{course}/split', [CourseAssignmentController::class, 'split'])->name('course-assignments.split');
+        Route::get('course-assignments/{course}/split-options', [CourseAssignmentController::class, 'splitOptions'])->name('course-assignments.split-options');
+        Route::delete('course-assignments/{course}/split', [CourseAssignmentController::class, 'merge'])->name('course-assignments.merge');
         Route::get('my-courses', [MyCourseController::class, 'index'])->name('my-courses.index');
 
         Route::get('academic-years', [AcademicYearController::class, 'index'])->name('academic-years.index');

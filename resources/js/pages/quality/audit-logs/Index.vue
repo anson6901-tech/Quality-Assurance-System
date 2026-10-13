@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
 import { Download } from 'lucide-vue-next';
-import Heading from '@/components/Heading.vue';
+import PageBanner from '@/components/PageBanner.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -113,24 +113,21 @@ defineOptions({
     <Head title="Audit Logs" />
 
     <section class="space-y-6">
-        <div
-            class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        <PageBanner
+            title="Audit Logs"
+            description="Detailed activity trail showing who did what, where, and with which submitted fields"
         >
-            <Heading
-                variant="small"
-                title="Audit Logs"
-                description="Detailed activity trail showing who did what, where, and with which submitted fields"
-            />
-
-            <Button
-                as="a"
-                href="/quality/audit-logs/export"
-                class="w-full gap-2 sm:w-auto"
-            >
-                <Download class="size-4" />
-                Export CSV
-            </Button>
-        </div>
+            <template #actions>
+                <Button
+                    as="a"
+                    href="/quality/audit-logs/export"
+                    class="w-full gap-2 sm:w-auto"
+                >
+                    <Download class="size-4" />
+                    Export CSV
+                </Button>
+            </template>
+        </PageBanner>
 
         <div
             class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"

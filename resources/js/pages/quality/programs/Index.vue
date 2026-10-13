@@ -3,8 +3,8 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import { Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import BulkImportDialog from '@/components/BulkImportDialog.vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -28,11 +28,14 @@ type Program = {
     max_level: number;
     courses_count: number;
     department: Department;
+    sections: Array<{ id: number; name: string }>;
+    section_keys: string[];
 };
 
 const props = defineProps<{
     programs: Program[];
     departments: Department[];
+    sectionOptions: Array<{ value: string; label: string }>;
 }>();
 
 defineOptions({
@@ -48,6 +51,7 @@ const form = useForm({
     name: '',
     code: '',
     max_level: '400',
+    sections: [] as string[],
 });
 const title = computed(() => (editing.value ? 'Edit program' : 'Add program'));
 
@@ -64,6 +68,7 @@ const openEdit = (program: Program) => {
     form.name = program.name;
     form.code = program.code;
     form.max_level = String(program.max_level);
+    form.sections = [...program.section_keys];
     form.clearErrors();
     dialogOpen.value = true;
 };
@@ -84,6 +89,12 @@ const submit = () => {
     }
 };
 
+const toggleSection = (value: string, checked: boolean) => {
+    form.sections = checked
+        ? [...new Set([...form.sections, value])]
+        : form.sections.filter((section) => section !== value);
+};
+
 const remove = (program: Program) => {
     if (window.confirm(`Delete ${program.name}?`)) {
         router.delete(`/quality/programs/${program.id}`, {
@@ -97,52 +108,69 @@ const remove = (program: Program) => {
     <Head title="Programs" />
 
     <div class="space-y-6">
-        <div
-            class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        <PageBanner
+            title="Programs"
+            description="Manage programs under departments and connect their curriculum courses"
         >
-            <Heading
-                variant="small"
-                title="Programs"
-                description="Manage programs under departments and connect their curriculum courses"
-            />
-            <div class="flex flex-wrap gap-2">
-                <BulkImportDialog
-                    title="Bulk add programs"
-                    description="Use the generated school and department codes to avoid invalid program links."
-                    template-url="/quality/bulk/programs/template"
-                    import-url="/quality/bulk/programs"
-                    columns="school_code, department_code, name, code, max_level"
-                />
-                <Button
-                    type="button"
-                    class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                    @click="openCreate"
-                >
-                    <Plus /> Add program
-                </Button>
-            </div>
-        </div>
+            <template #actions>
+                <div class="flex flex-wrap gap-2">
+                    <BulkImportDialog
+                        title="Bulk add programs"
+                        description="Use the generated school and department codes to avoid invalid program links."
+                        template-url="/quality/bulk/programs/template"
+                        import-url="/quality/bulk/programs"
+                        columns="school_code, department_code, name, code, max_level"
+                    />
+                    <Button
+                        type="button"
+                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                        @click="openCreate"
+                    >
+                        <Plus /> Add program
+                    </Button>
+                </div>
+            </template>
+        </PageBanner>
 
         <div
             class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
         >
             <div
-                class="grid min-w-[760px] grid-cols-[1fr_1fr_1fr_100px_100px_100px] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
+                class="grid min-w-[760px] grid-cols-[1fr_1fr_1.2fr_90px_80px_100px] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
             >
-                <span>Program</span><span>Department</span><span>School</span
+                <span>Program</span><span>Department</span><span>Sections</span
                 ><span>Levels</span><span>Courses</span><span>Actions</span>
             </div>
             <div
                 v-for="program in props.programs"
                 :key="program.id"
-                class="grid min-w-[760px] grid-cols-[1fr_1fr_1fr_100px_100px_100px] items-center gap-4 border-b px-4 py-4 text-sm last:border-b-0"
+                class="grid min-w-[760px] grid-cols-[1fr_1fr_1.2fr_90px_80px_100px] items-center gap-4 border-b px-4 py-4 text-sm last:border-b-0"
             >
                 <div>
                     <div class="font-medium">{{ program.name }}</div>
                     <div class="text-muted-foreground">{{ program.code }}</div>
                 </div>
-                <span>{{ program.department.name }}</span>
-                <span>{{ program.department.school.name }}</span>
+                <div>
+                    <div>{{ program.department.name }}</div>
+                    <div class="text-muted-foreground">
+                        {{ program.department.school.name }}
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-1">
+                    <span
+                        v-for="section in program.sections"
+                        :key="section.id"
+                        class="rounded-full border border-[#c8d7de] bg-[#f5f8fa] px-2 py-0.5 text-xs text-[#1d2f37]"
+                    >
+                        {{ section.name }}
+                    </span>
+                    <span
+                        v-if="program.sections.length === 0"
+                        class="text-xs text-muted-foreground"
+                    >
+                        No sections
+                    </span>
+                </div>
                 <span>100–{{ program.max_level }}</span>
                 <span>{{ program.courses_count }}</span>
                 <div class="flex gap-1">
@@ -230,6 +258,35 @@ const remove = (program: Program) => {
                     </p>
                     <InputError :message="form.errors.max_level" />
                 </div>
+                <fieldset class="grid gap-2">
+                    <legend class="mb-2 text-sm font-medium">Sections</legend>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label
+                            v-for="option in props.sectionOptions"
+                            :key="option.value"
+                            class="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                        >
+                            <input
+                                type="checkbox"
+                                class="h-4 w-4 accent-[#007a2f]"
+                                :checked="form.sections.includes(option.value)"
+                                @change="
+                                    toggleSection(
+                                        option.value,
+                                        ($event.target as HTMLInputElement)
+                                            .checked,
+                                    )
+                                "
+                            />
+                            {{ option.label }}
+                        </label>
+                    </div>
+                    <p class="text-xs text-muted-foreground">
+                        Courses in this program can be split and assigned by
+                        section.
+                    </p>
+                    <InputError :message="form.errors.sections" />
+                </fieldset>
                 <div class="grid grid-cols-2 gap-2 pt-2 sm:flex sm:justify-end">
                     <Button
                         type="button"

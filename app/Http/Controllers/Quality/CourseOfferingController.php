@@ -30,7 +30,7 @@ class CourseOfferingController extends Controller
 
         $courses = Course::query()
             ->with('department.school:id,name')
-            ->orderByRaw('CAST(level AS INTEGER)')
+            ->orderByRaw('(level + 0)')
             ->orderBy('code')
             ->get()
             ->map(fn (Course $course) => [
@@ -104,7 +104,7 @@ class CourseOfferingController extends Controller
             ->whereIn('id', $courseIds)
             ->where(fn ($query) => $query
                 ->whereNull('level')
-                ->orWhereRaw('CAST(level AS INTEGER) <= ?', [$program->max_level]))
+                ->orWhereRaw('(level + 0) <= ?', [$program->max_level]))
             ->count();
         abort_unless($validCount === $courseIds->count(), 422);
 

@@ -2,8 +2,8 @@
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { Plus, Save, Trash2 } from 'lucide-vue-next';
 import { reactive, watch } from 'vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -141,8 +141,7 @@ const deleteRole = (role: RoleRight) => {
     <Head title="Roles & Rights" />
 
     <section class="space-y-7">
-        <Heading
-            variant="small"
+        <PageBanner
             title="Roles & Rights"
             description="Define what each user role can see and do in the QA system"
         />

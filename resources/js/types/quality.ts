@@ -25,12 +25,15 @@ export type QualityReport = {
     semester: { id: number; name: string } | null;
     summary: string | null;
     filePath: string | null;
+    canView: boolean;
     fileUrl: string | null;
     downloadUrl: string | null;
     location: string;
     school: { id: number; name: string } | null;
     department: { id: number; name: string } | null;
     program: { id: number; name: string; code: string } | null;
+    section?: { id: number; name: string } | null;
+    part?: { key: string; label: string; mode: SplitMode } | null;
     lecturer: LecturerOption | null;
     courses: CourseOption[];
     uploader: { id: number; name: string; email?: string | null } | null;
@@ -91,4 +94,63 @@ export type LecturerOption = {
     school: { id: number; name: string } | null;
     department: { id: number; name: string } | null;
     courses?: CourseOption[];
+};
+
+export type SplitMode =
+    | 'merged'
+    | 'level_program'
+    | 'level_section'
+    | 'section_program'
+    | 'level_program_section';
+
+export type CourseCell = {
+    programId: number | null;
+    sectionId: number | null;
+    level: string | null;
+    program: { id: number; name: string; code: string } | null;
+    section: {
+        id: number;
+        name: string;
+        type: string;
+        isWeekend: boolean;
+    } | null;
+};
+
+export type PartLecturer = {
+    id: number;
+    name: string;
+    email: string;
+    studentCount: number | null;
+    allocatedHours: number | null;
+};
+
+export type CoursePart = {
+    key: string;
+    label: string;
+    cells: CourseCell[];
+    lecturers: PartLecturer[];
+    mixedLecturers: boolean;
+    unassignedCells: number;
+};
+
+export type CourseEntry<Part extends CoursePart = CoursePart> = {
+    key: string;
+    id: number;
+    code: string;
+    title: string;
+    courseType: 'normal' | 'module';
+    creditHours: number | null;
+    semesterId: number;
+    department: {
+        id: number;
+        name: string;
+        school: { id: number; name: string } | null;
+    } | null;
+    splitMode: SplitMode;
+    programs: Array<{ id: number; name: string; code: string }>;
+    sections: Array<{ id: number; name: string }>;
+    levels: string[];
+    hasSections: boolean;
+    cellCount: number;
+    parts: Part[];
 };

@@ -128,7 +128,17 @@ it('shows only courses with assigned lecturers on the report upload page', funct
         'department_id' => $department->id,
     ]);
 
-    $lecturer->assignedCourses()->attach($courseWithLecturer);
+    $program = Program::create(['department_id' => $department->id, 'name' => 'BSc Nursing', 'code' => 'BSN', 'max_level' => 400]);
+    $semester = $academicYear->semesters()->firstOrFail();
+
+    foreach ([$courseWithLecturer, $courseWithoutLecturer] as $course) {
+        CourseOffering::create(['course_id' => $course->id, 'program_id' => $program->id, 'semester_id' => $semester->id]);
+    }
+
+    $lecturer->assignedCourses()->attach($courseWithLecturer, [
+        'program_id' => $program->id,
+        'semester_id' => $semester->id,
+    ]);
 
     $this->actingAs($user)
         ->get('/quality/reports/create')

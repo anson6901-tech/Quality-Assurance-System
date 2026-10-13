@@ -2,8 +2,12 @@
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { Download, Pencil, Plus, Trash2, Upload } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
+import CourseList from '@/components/quality/CourseList.vue';
+import CourseRow from '@/components/quality/CourseRow.vue';
+import CourseSearch from '@/components/quality/CourseSearch.vue';
+import SplitMenu from '@/components/quality/SplitMenu.vue';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -15,6 +19,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useSearchParam } from '@/composables/useSearchParam';
+import { matchesSearch } from '@/lib/coursePartitions';
 
 type Department = {
     id: number;
@@ -68,10 +74,18 @@ const levelFilter = ref('');
 const availableFilterLevels = Array.from({ length: 10 }, (_, index) =>
     String((index + 1) * 100),
 );
+const courseSearch = ref(useSearchParam('search'));
 const filteredCourses = computed(() =>
-    levelFilter.value
-        ? props.courses.filter((course) => course.level === levelFilter.value)
-        : props.courses,
+    props.courses.filter(
+        (course) =>
+            (!levelFilter.value || course.level === levelFilter.value) &&
+            matchesSearch(courseSearch.value, [
+                course.code,
+                course.title,
+                course.department.name,
+                course.department.school.name,
+            ]),
+    ),
 );
 
 const closeAddCourse = () => {
@@ -122,33 +136,33 @@ const removeCourse = (course: Course) =>
     <Head title="Courses" />
     <div class="space-y-8">
         <section class="space-y-6">
-            <div
-                class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+            <PageBanner
+                title="Courses"
+                description="Manage reusable catalogue courses that can be mounted for any program."
             >
-                <Heading
-                    variant="small"
-                    title="Courses"
-                    description="Manage reusable catalogue courses that can be mounted for any program."
-                />
-                <div class="flex flex-wrap gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        class="border-[#007a2f]/30 bg-white text-[#007a2f] hover:bg-[#e3f6eb]"
-                        @click="bulkOpen = true"
-                    >
-                        <Upload /> Bulk add
-                    </Button>
-                    <Button
-                        type="button"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        @click="addCourseOpen = true"
-                    >
-                        <Plus /> Add course
-                    </Button>
-                </div>
-            </div>
-            <div class="rounded-xl border border-[#9fd8b8] bg-[#edf9f2] p-4">
+                <template #actions>
+                    <div class="flex flex-wrap gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            class="border-[#007a2f]/30 bg-white text-[#007a2f] hover:bg-[#e3f6eb]"
+                            @click="bulkOpen = true"
+                        >
+                            <Upload /> Bulk add
+                        </Button>
+                        <Button
+                            type="button"
+                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                            @click="addCourseOpen = true"
+                        >
+                            <Plus /> Add course
+                        </Button>
+                    </div>
+                </template>
+            </PageBanner>
+            <div
+                class="rounded-xl border border-[#9fd8b8] bg-[#edf9f2] p-4 shadow-sm lg:sticky lg:top-20 lg:z-20"
+            >
                 <div class="grid max-w-sm gap-2">
                     <Label for="course-level-filter">Level</Label>
                     <select
@@ -167,57 +181,101 @@ const removeCourse = (course: Course) =>
                     </select>
                 </div>
             </div>
-            <div
-                class="overflow-x-auto rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
+            <CourseSearch
+                v-if="courses.length"
+                v-model="courseSearch"
+                :shown="filteredCourses.length"
+                :total="courses.length"
+                placeholder="Search courses by code, title or department"
+            />
+
+            <CourseList
+                v-if="filteredCourses.length"
+                :headings="[
+                    'Course',
+                    'School and department',
+                    'Type',
+                    'Credit hours',
+                    'Actions',
+                ]"
+                columns="minmax(0,2fr) minmax(0,2fr) 110px 110px minmax(170px,auto)"
             >
-                <div
-                    class="grid grid-cols-[1.2fr_1fr_1fr_110px_130px_auto] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
-                >
-                    <span>Course</span><span>School & department</span
-                    ><span>Availability</span><span>Type</span
-                    ><span>Credit hours</span><span>Actions</span>
-                </div>
-                <div
+                <CourseRow
                     v-for="course in filteredCourses"
                     :key="course.id"
-                    class="grid grid-cols-[1.2fr_1fr_1fr_110px_130px_auto] items-center gap-4 border-b px-4 py-4 text-sm last:border-b-0"
+                    :stripe-class="
+                        course.course_type === 'module'
+                            ? 'border-l-[#7c5cc4]'
+                            : 'border-l-[#0f8a3e]'
+                    "
                 >
-                    <div>
-                        <div class="font-medium">
-                            {{ course.code }} — {{ course.title }}
+                    <div class="min-w-0">
+                        <div class="font-semibold text-[#075b2e]">
+                            {{ course.code }}
                         </div>
-                        <div class="text-muted-foreground">
-                            {{ course.level ?? 'Level not set' }}
+                        <div class="truncate text-sm text-[#3c5059]">
+                            {{ course.title }}
                         </div>
                     </div>
-                    <div>
-                        <div>{{ course.department.school.name }}</div>
-                        <div class="text-muted-foreground">
+                    <div class="min-w-0 text-sm">
+                        <div class="truncate text-[#1d2f37]">
                             {{ course.department.name }}
                         </div>
+                        <div class="truncate text-xs text-[#66808a]">
+                            {{ course.department.school.name }}
+                        </div>
                     </div>
-                    <span>Any program</span>
-                    <span class="capitalize">{{ course.course_type }}</span>
-                    <span>{{ course.credit_hours ?? 'Not set' }}</span>
-                    <div class="flex justify-end gap-1">
+                    <div>
+                        <span
+                            v-if="course.course_type === 'module'"
+                            class="rounded border border-[#d6c9f2] bg-[#f4effc] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[#56349c] uppercase"
+                        >
+                            Module
+                        </span>
+                        <span v-else class="text-sm text-[#3c5059]">
+                            Normal
+                        </span>
+                    </div>
+                    <div class="text-sm text-[#3c5059]">
+                        {{ course.credit_hours ?? 'Not set' }}
+                    </div>
+                    <div class="flex justify-start gap-1 md:justify-end">
+                        <SplitMenu
+                            :course-id="course.id"
+                            :course-code="course.code"
+                        />
                         <Button
                             type="button"
                             variant="ghost"
-                            size="sm"
+                            size="icon"
+                            class="size-8"
+                            :title="`Edit ${course.code}`"
                             @click="startEdit(course)"
                         >
                             <Pencil class="size-4" />
+                            <span class="sr-only">Edit {{ course.code }}</span>
                         </Button>
                         <Button
                             type="button"
                             variant="ghost"
-                            size="sm"
+                            size="icon"
+                            class="size-8 text-red-700 hover:bg-red-50 hover:text-red-800"
+                            :title="`Delete ${course.code}`"
                             @click="removeCourse(course)"
                         >
                             <Trash2 class="size-4" />
+                            <span class="sr-only"
+                                >Delete {{ course.code }}</span
+                            >
                         </Button>
                     </div>
-                </div>
+                </CourseRow>
+            </CourseList>
+            <div
+                v-else
+                class="rounded-xl border border-dashed border-[#9fd8b8] bg-white py-12 text-center text-sm text-muted-foreground"
+            >
+                No courses match your search or level.
             </div>
         </section>
     </div>

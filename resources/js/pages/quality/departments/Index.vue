@@ -3,8 +3,8 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import { Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { ref } from 'vue';
 import BulkImportDialog from '@/components/BulkImportDialog.vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -115,31 +115,29 @@ const deleteDepartment = (department: DepartmentRow) => {
 
     <div class="space-y-8">
         <section class="space-y-6">
-            <div
-                class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+            <PageBanner
+                title="Departments"
+                description="Departments sit under schools and scope HOD and lecturer access"
             >
-                <Heading
-                    variant="small"
-                    title="Departments"
-                    description="Departments sit under schools and scope HOD and lecturer access"
-                />
-                <div class="flex flex-wrap gap-2">
-                    <BulkImportDialog
-                        title="Bulk add departments"
-                        description="The template includes valid school codes for reliable department links."
-                        template-url="/quality/bulk/departments/template"
-                        import-url="/quality/bulk/departments"
-                        columns="school_code, name, code"
-                    />
-                    <Button
-                        type="button"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        @click="addOpen = true"
-                    >
-                        <Plus /> Add department
-                    </Button>
-                </div>
-            </div>
+                <template #actions>
+                    <div class="flex flex-wrap gap-2">
+                        <BulkImportDialog
+                            title="Bulk add departments"
+                            description="The template includes valid school codes for reliable department links."
+                            template-url="/quality/bulk/departments/template"
+                            import-url="/quality/bulk/departments"
+                            columns="school_code, name, code"
+                        />
+                        <Button
+                            type="button"
+                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                            @click="addOpen = true"
+                        >
+                            <Plus /> Add department
+                        </Button>
+                    </div>
+                </template>
+            </PageBanner>
 
             <div
                 class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"

@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { Head, router, useForm } from '@inertiajs/vue3';
-import {
-    Check,
-    Combine,
-    RotateCcw,
-    Search,
-    Split,
-    Trash2,
-    Users,
-} from 'lucide-vue-next';
+import { Search, Users } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
+import CourseList from '@/components/quality/CourseList.vue';
+import CourseRow from '@/components/quality/CourseRow.vue';
+import CourseScopeCell from '@/components/quality/CourseScopeCell.vue';
+import CourseSearch from '@/components/quality/CourseSearch.vue';
+import CourseTitleCell from '@/components/quality/CourseTitleCell.vue';
+import LecturerCell from '@/components/quality/LecturerCell.vue';
+import PartLabelCell from '@/components/quality/PartLabelCell.vue';
+import SplitMenu from '@/components/quality/SplitMenu.vue';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -22,55 +22,25 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
+import { useSearchParam } from '@/composables/useSearchParam';
+import { matchesSearch } from '@/lib/coursePartitions';
+import type { CourseEntry, CoursePart } from '@/types';
 
-type Lecturer = {
-    id: number;
-    name: string;
-    email: string;
-    studentCount: number | null;
-    allocatedHours: number | null;
-};
+type Lecturer = { id: number; name: string; email: string };
 type AcademicYear = {
     id: number;
     name: string;
     status: string;
     semesters: Array<{ id: number; name: string; sequence: number }>;
 };
-type ApprovalReport = {
-    id: number;
-    title: string;
-    status: 'under_review' | 'approved';
-    lecturer: string | null;
-    academicYear: string | null;
-};
-type Course = {
-    offeringId: number;
-    offeringIds: number[];
-    id: number;
-    code: string;
-    title: string;
-    courseType: 'normal' | 'module';
-    program: { id: number; name: string; code: string } | null;
-    programs: Array<{ id: number; name: string; code: string }>;
-    programIds: number[];
-    levels: string[];
-    variants: Course[];
-    hasDifferentLecturers?: boolean;
-    level: string | null;
-    department: { name: string; school: { name: string } };
-    lecturers: Lecturer[];
-    reports: ApprovalReport[];
-};
 
 const props = defineProps<{
-    courses: Course[];
+    courses: CourseEntry[];
     lecturers: Lecturer[];
     academicYears: AcademicYear[];
     filters: { academicYearId: number | null; semesterId: number | null };
-    canUploadReports: boolean;
-    canViewApprovals: boolean;
-    canApproveReports: boolean;
+    canManageAssignments: boolean;
+    canManageStructure: boolean;
 }>();
 defineOptions({
     layout: {
@@ -85,7 +55,10 @@ defineOptions({
 
 const assignmentForm = useForm({
     semester_id: '',
-    program_ids: [] as number[],
+    cells: [] as Array<{
+        program_id: number | null;
+        section_id: number | null;
+    }>,
     lecturer_ids: [] as number[],
     assignments: {} as Record<
         number,
@@ -95,26 +68,10 @@ const assignmentForm = useForm({
 
 const assignmentError = (field: string): string | undefined =>
     (assignmentForm.errors as Record<string, string | undefined>)[field];
-const reportForm = useForm({
-    title: '',
-    category: 'Academic Quality',
-    academic_year_id: props.academicYears[0]
-        ? String(props.academicYears[0].id)
-        : '',
-    semester_id: '',
-    program_id: '',
-    summary: '',
-    lecturer_id: '',
-    course_ids: [] as number[],
-    report_file: null as File | null,
-});
 const assignmentOpen = ref(false);
 const assignmentStep = ref<'lecturers' | 'workload'>('lecturers');
-const reportOpen = ref(false);
-const approvalsOpen = ref(false);
-const selectedCourse = ref<Course | null>(null);
-const reportCourse = ref<Course | null>(null);
-const approvalCourse = ref<Course | null>(null);
+const selectedCourse = ref<CourseEntry | null>(null);
+const selectedPart = ref<CoursePart | null>(null);
 const lecturerSearch = ref('');
 const selectedAcademicYearId = ref(
     props.filters.academicYearId ? String(props.filters.academicYearId) : '',
@@ -122,89 +79,116 @@ const selectedAcademicYearId = ref(
 const selectedSemesterId = ref(
     props.filters.semesterId ? String(props.filters.semesterId) : '',
 );
-const courseCodeSearch = ref('');
+const courseCodeSearch = ref(useSearchParam('search'));
 const schoolFilter = ref('');
 const departmentFilter = ref('');
 const programFilter = ref('');
 const levelFilter = ref('');
 const courseTypeFilter = ref('');
 const lecturerFilter = ref('');
-const { splitCourseCodes, toggleCourseSplit } = useCourseOfferingSplits(
-    selectedAcademicYearId,
-    selectedSemesterId,
-);
 const selectedAcademicYear = computed(
     () =>
         props.academicYears.find(
             (year) => year.id === Number(selectedAcademicYearId.value),
         ) ?? null,
 );
+const schoolName = (course: CourseEntry) =>
+    course.department?.school?.name ?? '';
 const schools = computed(() => [
-    ...new Set(props.courses.map((course) => course.department.school.name)),
+    ...new Set(props.courses.map(schoolName).filter(Boolean)),
 ]);
-const departments = computed(() =>
-    props.courses
-        .filter(
-            (course) =>
-                !schoolFilter.value ||
-                course.department.school.name === schoolFilter.value,
-        )
-        .map((course) => course.department.name)
-        .filter((value, index, values) => values.indexOf(value) === index),
-);
+const departments = computed(() => [
+    ...new Set(
+        props.courses
+            .filter(
+                (course) =>
+                    !schoolFilter.value ||
+                    schoolName(course) === schoolFilter.value,
+            )
+            .map((course) => course.department?.name ?? '')
+            .filter(Boolean),
+    ),
+]);
 const programs = computed(() =>
     props.courses
         .filter(
             (course) =>
                 (!schoolFilter.value ||
-                    course.department.school.name === schoolFilter.value) &&
+                    schoolName(course) === schoolFilter.value) &&
                 (!departmentFilter.value ||
-                    course.department.name === departmentFilter.value),
+                    course.department?.name === departmentFilter.value),
         )
         .flatMap((course) => course.programs)
-        .filter(
-            (program): program is { id: number; name: string; code: string } =>
-                program !== null,
-        )
         .filter(
             (program, index, values) =>
                 values.findIndex((value) => value.id === program.id) === index,
         ),
 );
-const filteredCourses = computed(() =>
+const levels = computed(() =>
+    [...new Set(props.courses.flatMap((course) => course.levels))].sort(
+        (left, right) => Number(left) - Number(right),
+    ),
+);
+const courseLecturers = (course: CourseEntry) =>
+    course.parts.flatMap((part) => part.lecturers);
+const displayCourses = computed(() =>
     props.courses.filter(
         (course) =>
-            (!courseCodeSearch.value ||
-                `${course.code} ${course.title}`
-                    .toLowerCase()
-                    .includes(courseCodeSearch.value.toLowerCase())) &&
+            matchesSearch(courseCodeSearch.value, [
+                course.code,
+                course.title,
+                course.department?.name,
+                ...course.programs.flatMap((program) => [
+                    program.code,
+                    program.name,
+                ]),
+                ...courseLecturers(course).map((lecturer) => lecturer.name),
+            ]) &&
             (!schoolFilter.value ||
-                course.department.school.name === schoolFilter.value) &&
+                schoolName(course) === schoolFilter.value) &&
             (!departmentFilter.value ||
-                course.department.name === departmentFilter.value) &&
+                course.department?.name === departmentFilter.value) &&
             (!programFilter.value ||
                 course.programs.some(
                     (program) => String(program.id) === programFilter.value,
                 )) &&
-            (!levelFilter.value || course.level === levelFilter.value) &&
+            (!levelFilter.value || course.levels.includes(levelFilter.value)) &&
             (!courseTypeFilter.value ||
                 course.courseType === courseTypeFilter.value) &&
             (!lecturerFilter.value ||
-                course.lecturers.some(
+                courseLecturers(course).some(
                     (lecturer) => String(lecturer.id) === lecturerFilter.value,
                 )),
     ),
 );
-const displayCourses = computed(() => filteredCourses.value);
-const visibleCourseVariants = (course: Course) =>
-    course.variants.length === 1 || splitCourseCodes.value.includes(course.code)
-        ? course.variants
-        : [];
-const levels = computed(() =>
-    [
-        ...new Set(props.courses.map((course) => course.level).filter(Boolean)),
-    ].sort((left, right) => Number(left) - Number(right)),
-);
+const isSplit = (course: CourseEntry) => course.splitMode !== 'merged';
+const partStripe = (part: CoursePart) => {
+    if (part.unassignedCells === part.cells.length) {
+        return 'border-l-[#d98a0b]';
+    }
+
+    return part.unassignedCells > 0 || part.mixedLecturers
+        ? 'border-l-[#7c5cc4]'
+        : 'border-l-[#0f8a3e]';
+};
+const courseStripe = (course: CourseEntry) => {
+    const unassigned = course.parts.filter(
+        (part) => part.unassignedCells === part.cells.length,
+    ).length;
+
+    if (
+        unassigned === 0 &&
+        course.parts.every((part) => !part.mixedLecturers)
+    ) {
+        return 'border-l-[#0f8a3e]';
+    }
+
+    return unassigned === course.parts.length
+        ? 'border-l-[#d98a0b]'
+        : 'border-l-[#7c5cc4]';
+};
+const assignedPartCount = (course: CourseEntry) =>
+    course.parts.filter((part) => part.unassignedCells === 0).length;
 const filteredLecturers = computed(() => {
     const search = lecturerSearch.value.trim().toLowerCase();
 
@@ -216,16 +200,20 @@ const filteredLecturers = computed(() => {
           )
         : props.lecturers;
 });
-const openAssignments = (course: Course) => {
+const openAssignments = (course: CourseEntry, part: CoursePart) => {
     selectedCourse.value = course;
-    assignmentForm.semester_id = selectedSemesterId.value;
-    assignmentForm.program_ids = course.programIds;
-    assignmentForm.lecturer_ids = course.lecturers.map(
-        (lecturer) => lecturer.id,
-    );
+    selectedPart.value = part;
+    assignmentForm.semester_id = String(course.semesterId);
+    assignmentForm.cells = part.cells.map((cell) => ({
+        program_id: cell.programId,
+        section_id: cell.sectionId,
+    }));
+    assignmentForm.lecturer_ids = part.mixedLecturers
+        ? []
+        : part.lecturers.map((lecturer) => lecturer.id);
     assignmentForm.assignments = Object.fromEntries(
         props.lecturers.map((lecturer) => {
-            const assigned = course.lecturers.find(
+            const assigned = part.lecturers.find(
                 (item) => item.id === lecturer.id,
             );
 
@@ -263,67 +251,43 @@ const applyFilters = () =>
         },
         { preserveState: false },
     );
+const periodQuery = () => ({
+    academic_year_id: selectedAcademicYearId.value,
+    semester_id: selectedSemesterId.value,
+});
+const reloadPeriod = () =>
+    router.get('/quality/course-assignments', periodQuery(), {
+        preserveScroll: true,
+        preserveState: true,
+        replace: true,
+    });
 const saveAssignments = () =>
     selectedCourse.value &&
     assignmentForm.put(
         `/quality/course-assignments/${selectedCourse.value.id}/lecturers`,
         {
             preserveScroll: true,
+            preserveState: true,
             onSuccess: () => {
                 assignmentOpen.value = false;
                 assignmentStep.value = 'lecturers';
                 selectedCourse.value = null;
+                selectedPart.value = null;
+                window.setTimeout(reloadPeriod, 250);
             },
         },
     );
-const uploadReport = () =>
-    reportForm.post('/quality/reports', {
-        forceFormData: true,
-        preserveScroll: true,
-        onSuccess: () => {
-            reportOpen.value = false;
-            reportCourse.value = null;
-        },
-    });
-const approvalAction = (
-    report: ApprovalReport,
-    action: 'approve' | 'return' | 'unapprove',
-) =>
-    router.post(
-        `/quality/reports/${report.id}/${action}`,
-        { from_course_assignments: true },
-        {
-            preserveScroll: true,
-            onSuccess: () => {
-                approvalsOpen.value = false;
-                approvalCourse.value = null;
-            },
-        },
-    );
-const deleteReport = (report: ApprovalReport) => {
-    if (window.confirm(`Delete ${report.title}?`)) {
-        router.delete(`/quality/reports/${report.id}`, {
-            data: { from_course_assignments: true },
-            preserveScroll: true,
-            onSuccess: () => {
-                approvalsOpen.value = false;
-                approvalCourse.value = null;
-            },
-        });
-    }
-};
 </script>
 
 <template>
     <Head title="Course Assignments" />
     <div class="space-y-6">
-        <Heading
-            variant="small"
+        <PageBanner
             title="Course Assignments"
-            description="Select an academic year and semester. Each semester starts with fresh course allocations."
+            description="Select an academic year and semester, then assign lecturers. Use Split to separate a course by program, level or section."
         />
         <div
-            class="flex flex-wrap items-end gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-4 shadow-sm lg:sticky lg:top-24 lg:z-10"
+            class="flex flex-wrap items-end gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-4 shadow-sm lg:sticky lg:top-20 lg:z-20"
         >
             <div class="grid gap-1">
                 <label class="text-sm font-medium">Academic year</label
@@ -374,14 +338,6 @@ const deleteReport = (report: ApprovalReport) => {
                         {{ semester.name }}
                     </option>
                 </select>
-            </div>
-            <div class="grid gap-1">
-                <label class="text-sm font-medium">Course code</label
-                ><Input
-                    v-model="courseCodeSearch"
-                    class="h-10 w-40 bg-white"
-                    placeholder="Search course"
-                />
             </div>
             <div class="grid gap-1">
                 <label class="text-sm font-medium">School</label
@@ -487,333 +443,205 @@ const deleteReport = (report: ApprovalReport) => {
                 >Apply filters</Button
             >
         </div>
-        <div class="space-y-4">
-            <article
-                v-for="(course, courseIndex) in displayCourses"
-                :key="course.code"
-                class="overflow-hidden rounded-xl border border-[#b8ced8] bg-white shadow-sm"
+        <CourseSearch
+            v-if="courses.length"
+            v-model="courseCodeSearch"
+            :shown="displayCourses.length"
+            :total="courses.length"
+        />
+
+        <CourseList
+            v-if="displayCourses.length"
+            :headings="[
+                'Course',
+                'Programs and sections',
+                'Lecturers',
+                'Workload',
+                'Action',
+            ]"
+            columns="minmax(0,1.6fr) minmax(0,1.5fr) minmax(0,1.6fr) minmax(130px,1fr) minmax(170px,auto)"
+        >
+            <CourseRow
+                v-for="course in displayCourses"
+                :key="course.key"
+                :stripe-class="courseStripe(course)"
             >
-                <div
-                    class="grid gap-4 border-b border-[#b8ced8] bg-[#f8fbfc] px-4 py-4 md:grid-cols-[auto_1.5fr_0.65fr_0.75fr_0.75fr_1fr] md:items-center"
-                >
-                    <div
-                        class="flex h-8 w-8 items-center justify-center rounded-md bg-[#d9edf5] text-sm font-bold text-[#234d5d]"
+                <CourseTitleCell
+                    :code="course.code"
+                    :title="course.title"
+                    :course-type="course.courseType"
+                    :subtitle="course.department?.name"
+                />
+                <CourseScopeCell
+                    :programs="course.programs"
+                    :levels="course.levels"
+                    :sections="course.sections"
+                    :mode="course.splitMode"
+                    :part-count="course.parts.length"
+                />
+                <template v-if="!isSplit(course)">
+                    <LecturerCell
+                        v-if="course.parts[0].lecturers.length"
+                        :names="
+                            course.parts[0].lecturers.map(
+                                (lecturer) => lecturer.name,
+                            )
+                        "
+                        :detail="
+                            course.parts[0].mixedLecturers
+                                ? 'Different lecturers per section'
+                                : course.parts[0].lecturers.length === 1
+                                  ? course.parts[0].lecturers[0].email
+                                  : null
+                        "
+                    />
+                    <span
+                        v-else
+                        class="inline-flex w-fit items-center rounded-full border border-[#f5d48a] bg-[#fdf3d7] px-2.5 py-0.5 text-xs font-medium text-[#8a4b06]"
                     >
-                        {{ courseIndex + 1 }}
-                    </div>
-                    <div class="min-w-0">
-                        <div class="text-sm font-bold text-[#075b2e]">
-                            {{ course.code }}
-                        </div>
-                        <div class="truncate text-sm text-[#243d47]">
-                            {{ course.title }}
-                        </div>
-                    </div>
-                    <div class="text-sm">
+                        Not assigned
+                    </span>
+                    <div class="text-xs text-[#52646c]">
                         <div
-                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
+                            v-for="lecturer in course.parts[0].lecturers"
+                            :key="lecturer.id"
+                            class="truncate"
                         >
-                            Level
+                            {{ lecturer.studentCount ?? '—' }} students ·
+                            {{ lecturer.allocatedHours ?? '—' }} hrs
                         </div>
-                        {{
-                            course.levels.length
-                                ? course.levels.join(', ')
-                                : '—'
-                        }}
-                    </div>
-                    <div class="text-sm">
-                        <div
-                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
+                        <span
+                            v-if="!course.parts[0].lecturers.length"
+                            class="text-[#8a9aa1]"
+                            >Not set</span
                         >
-                            Offerings
-                        </div>
-                        {{ course.variants.length }}
                     </div>
-                    <div class="text-sm">
-                        <div
-                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
-                        >
-                            Type
-                        </div>
-                        <span class="capitalize">{{ course.courseType }}</span>
+                </template>
+                <template v-else>
+                    <div class="text-sm text-[#3c5059]">
+                        {{ assignedPartCount(course) }} of
+                        {{ course.parts.length }} parts assigned
                     </div>
-                    <div class="min-w-0 text-sm">
-                        <div
-                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
-                        >
-                            Department
-                        </div>
-                        <div class="truncate">
-                            {{ course.department.name }}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="px-4 py-4">
-                    <div
-                        class="overflow-hidden rounded-md border border-[#9fb7c1]"
-                    >
-                        <div
-                            class="hidden grid-cols-[1.55fr_0.65fr_0.55fr_1.7fr_0.8fr_auto] gap-px bg-[#9fb7c1] text-xs font-semibold text-[#294c59] md:grid"
-                        >
-                            <div class="bg-[#d9edf5] px-3 py-2">Program</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Code</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Level</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">
-                                Assigned lecturers
-                            </div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Workload</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Action</div>
-                        </div>
-                        <div class="divide-y divide-[#cbdbe1] bg-white">
-                            <div
-                                v-if="
-                                    course.variants.length > 1 &&
-                                    !splitCourseCodes.includes(course.code)
-                                "
-                                class="flex items-center justify-between gap-4 bg-[#fbfdfe] px-4 py-5"
-                            >
-                                <div>
-                                    <div class="font-medium text-[#243d47]">
-                                        {{ course.variants.length }} program
-                                        offerings grouped
-                                    </div>
-                                    <div
-                                        class="mt-1 text-xs text-muted-foreground"
-                                    >
-                                        Split this course to assign lecturers
-                                        and workload to each program offering.
-                                    </div>
-                                </div>
-                                <Split class="h-5 w-5 text-[#087036]" />
-                            </div>
-                            <div
-                                v-for="variant in visibleCourseVariants(course)"
-                                :key="variant.offeringId"
-                                class="grid gap-3 px-3 py-3 text-sm md:grid-cols-[1.55fr_0.65fr_0.55fr_1.7fr_0.8fr_auto] md:items-center"
-                            >
-                                <div class="font-medium text-[#243d47]">
-                                    {{
-                                        variant.program?.name ??
-                                        'Program not set'
-                                    }}
-                                </div>
-                                <div class="text-muted-foreground">
-                                    {{ variant.program?.code ?? '—' }}
-                                </div>
-                                <div>{{ variant.level ?? '—' }}</div>
-                                <div class="min-w-0">
-                                    <div
-                                        v-if="variant.lecturers.length"
-                                        class="space-y-1"
-                                    >
-                                        <div
-                                            v-for="lecturer in variant.lecturers"
-                                            :key="lecturer.id"
-                                            class="truncate"
-                                        >
-                                            {{ lecturer.name }}
-                                        </div>
-                                    </div>
-                                    <span v-else class="text-muted-foreground">
-                                        Not assigned
-                                    </span>
-                                </div>
-                                <div class="text-xs text-muted-foreground">
-                                    <template v-if="variant.lecturers.length">
-                                        <div
-                                            v-for="lecturer in variant.lecturers"
-                                            :key="lecturer.id"
-                                        >
-                                            {{ lecturer.studentCount ?? '—' }}
-                                            students ·
-                                            {{ lecturer.allocatedHours ?? '—' }}
-                                            hrs
-                                        </div>
-                                    </template>
-                                    <span v-else>Not set</span>
-                                </div>
-                                <div class="flex justify-end">
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        class="border-[#007a2f]/30 text-[#007a2f] hover:bg-[#e3f6eb]"
-                                        @click="openAssignments(variant)"
-                                    >
-                                        <Users class="h-4 w-4" /> Assign
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
+                    <div class="hidden md:block" />
+                </template>
                 <div
-                    class="flex flex-wrap justify-end gap-2 border-t border-[#cbdbe1] bg-[#f8fbfc] px-4 py-3"
+                    class="flex items-center justify-start gap-1.5 md:justify-end"
                 >
                     <Button
+                        v-if="!isSplit(course) && canManageAssignments"
                         type="button"
                         size="sm"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        @click="openAssignments(course)"
+                        :variant="
+                            course.parts[0].lecturers.length
+                                ? 'outline'
+                                : 'default'
+                        "
+                        :class="
+                            course.parts[0].lecturers.length
+                                ? 'border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]'
+                                : 'bg-[#007a2f] text-white hover:bg-[#006d2b]'
+                        "
+                        @click="openAssignments(course, course.parts[0])"
                     >
                         <Users class="h-4 w-4" />
-                        Assign from main course
-                    </Button>
-                    <Button
-                        v-if="course.variants.length > 1"
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
-                        @click="toggleCourseSplit(course.code)"
-                    >
-                        <Combine
-                            v-if="splitCourseCodes.includes(course.code)"
-                            class="h-4 w-4"
-                        />
-                        <Split v-else class="h-4 w-4" />
                         {{
-                            splitCourseCodes.includes(course.code)
-                                ? 'Combine offerings'
-                                : 'Split course offerings'
+                            course.parts[0].lecturers.length
+                                ? 'Change'
+                                : 'Assign'
                         }}
                     </Button>
+                    <SplitMenu
+                        :course-id="course.id"
+                        :course-code="course.code"
+                        :semester-id="course.semesterId"
+                        :mode="course.splitMode"
+                        :cells="course.parts.flatMap((part) => part.cells)"
+                        :can-split="canManageAssignments"
+                        :can-manage-sections="canManageStructure"
+                    />
                 </div>
-            </article>
 
-            <p
-                v-if="courses.length === 0"
-                class="rounded-xl border border-dashed border-[#9fd8b8] bg-white px-4 py-10 text-center text-sm text-muted-foreground"
-            >
-                {{
-                    academicYears.length === 0
-                        ? 'Create an academic year before assigning lecturers to courses.'
-                        : !selectedSemesterId
-                          ? 'Add a semester to the selected academic year before assigning courses.'
-                          : 'No courses are available for your department.'
-                }}
-            </p>
-        </div>
-        <div
-            v-if="false"
-            class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
-        >
-            <div
-                class="grid grid-cols-[1.2fr_1fr_110px_1.4fr_auto] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
-            >
-                <span>Course</span><span>Offering program</span><span>Type</span
-                ><span>Assigned lecturers</span><span>Action</span>
-            </div>
-            <div
-                v-for="course in displayCourses"
-                :key="course.offeringIds.join('-')"
-                class="grid grid-cols-[1.2fr_1fr_110px_1.4fr_auto] items-center gap-4 border-b px-4 py-4 text-sm last:border-b-0"
-            >
-                <div>
-                    <div class="font-medium">
-                        {{ course.code }} - {{ course.title }}
-                    </div>
-                    <div class="text-muted-foreground">
-                        {{
-                            course.levels.length
-                                ? `Level ${course.levels.join(', ')}`
-                                : 'Level not set'
-                        }}
-                    </div>
-                </div>
-                <div>
-                    <div
-                        v-if="
-                            course.variants.length > 1 &&
-                            !splitCourseCodes.includes(course.code)
-                        "
-                        class="font-medium text-[#234d5d]"
+                <template v-if="isSplit(course)" #children>
+                    <CourseRow
+                        v-for="part in course.parts"
+                        :key="part.key"
+                        :stripe-class="partStripe(part)"
+                        nested
                     >
-                        {{ course.variants.length }} offerings grouped
-                    </div>
-                    <div
-                        v-for="variant in visibleCourseVariants(course)"
-                        :key="variant.offeringId"
-                        class="font-medium"
-                    >
-                        {{ variant.program?.name ?? 'Program not set' }}
-                        <span
-                            v-if="variant.program"
-                            class="text-muted-foreground"
-                        >
-                            ({{ variant.program?.code }})
-                        </span>
-                    </div>
-                    <span
-                        v-if="
-                            course.programs.length === 0 &&
-                            visibleCourseVariants(course).length === 0
-                        "
-                        class="text-muted-foreground"
-                    >
-                        Program not set
-                    </span>
-                </div>
-                <span class="capitalize">{{ course.courseType }}</span>
-                <div class="text-muted-foreground">
-                    <span v-if="course.lecturers.length">{{
-                        course.lecturers
-                            .map(
-                                (lecturer) =>
-                                    `${lecturer.name} (${lecturer.studentCount ?? '-'} students, ${lecturer.allocatedHours ?? '-'} hrs)`,
-                            )
-                            .join(', ')
-                    }}</span
-                    ><span v-else-if="course.hasDifferentLecturers">
-                        Different lecturers — split to view
-                    </span>
-                    <span v-else>No lecturer assigned this semester</span>
-                </div>
-                <div class="flex flex-wrap justify-end gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        class="border-[#007a2f]/30 text-[#007a2f] hover:bg-[#e3f6eb]"
-                        @click="openAssignments(course)"
-                        ><Users class="h-4 w-4" /> Assign</Button
-                    >
-                    <Button
-                        v-if="course.variants.length > 1"
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        class="border-[#007a2f]/30 text-[#007a2f] hover:bg-[#e3f6eb]"
-                        @click="toggleCourseSplit(course.code)"
-                    >
-                        <Combine
-                            v-if="splitCourseCodes.includes(course.code)"
-                            class="h-4 w-4"
+                        <PartLabelCell
+                            :label="part.label"
+                            :cells="part.cells"
                         />
-                        <Split v-else class="h-4 w-4" />
-                        {{
-                            splitCourseCodes.includes(course.code)
-                                ? 'Combine'
-                                : 'Split by program & level'
-                        }}
-                    </Button>
-                </div>
-            </div>
-            <p
-                v-if="courses.length === 0"
-                class="px-4 py-10 text-center text-sm text-muted-foreground"
-            >
-                {{
-                    academicYears.length === 0
-                        ? 'Create an academic year before assigning lecturers to courses.'
-                        : !selectedSemesterId
-                          ? 'Add a semester to the selected academic year before assigning courses.'
-                          : 'No courses are available for your department.'
-                }}
-            </p>
-        </div>
+                        <div class="hidden md:block" />
+                        <LecturerCell
+                            v-if="part.lecturers.length"
+                            :names="
+                                part.lecturers.map((lecturer) => lecturer.name)
+                            "
+                            :detail="
+                                part.mixedLecturers
+                                    ? 'Different lecturers inside this part'
+                                    : part.lecturers.length === 1
+                                      ? part.lecturers[0].email
+                                      : null
+                            "
+                        />
+                        <span
+                            v-else
+                            class="inline-flex w-fit items-center rounded-full border border-[#f5d48a] bg-[#fdf3d7] px-2.5 py-0.5 text-xs font-medium text-[#8a4b06]"
+                        >
+                            Not assigned
+                        </span>
+                        <div class="text-xs text-[#52646c]">
+                            <div
+                                v-for="lecturer in part.lecturers"
+                                :key="lecturer.id"
+                            >
+                                {{ lecturer.studentCount ?? '—' }} students ·
+                                {{ lecturer.allocatedHours ?? '—' }} hrs
+                            </div>
+                            <span
+                                v-if="!part.lecturers.length"
+                                class="text-[#8a9aa1]"
+                                >Not set</span
+                            >
+                        </div>
+                        <div
+                            class="flex items-center justify-start md:justify-end"
+                        >
+                            <Button
+                                v-if="canManageAssignments"
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
+                                @click="openAssignments(course, part)"
+                            >
+                                <Users class="h-4 w-4" />
+                                {{
+                                    part.lecturers.length ? 'Change' : 'Assign'
+                                }}
+                            </Button>
+                        </div>
+                    </CourseRow>
+                </template>
+            </CourseRow>
+        </CourseList>
+
+        <p
+            v-else
+            class="rounded-xl border border-dashed border-[#9fd8b8] bg-white px-4 py-10 text-center text-sm text-muted-foreground"
+        >
+            {{
+                academicYears.length === 0
+                    ? 'Create an academic year before assigning lecturers to courses.'
+                    : !selectedSemesterId
+                      ? 'Add a semester to the selected academic year before assigning courses.'
+                      : courses.length === 0
+                        ? 'No courses are mounted for this semester.'
+                        : 'No courses match these filters.'
+            }}
+        </p>
     </div>
     <Dialog :open="assignmentOpen" @update:open="assignmentOpen = $event"
         ><DialogContent class="sm:max-w-2xl"
@@ -824,11 +652,18 @@ const deleteReport = (report: ApprovalReport) => {
                             ? 'Select lecturers'
                             : 'Set lecturer workload'
                     }}</DialogTitle
-                    ><DialogDescription>{{
-                        assignmentStep === 'lecturers'
-                            ? 'Click lecturer names to select who will teach this course, then continue.'
-                            : 'Enter the class size and allocated teaching hours for each selected lecturer.'
-                    }}</DialogDescription></DialogHeader
+                    ><DialogDescription
+                        ><span
+                            v-if="selectedCourse && selectedPart"
+                            class="mb-1 block font-medium text-[#075b2e]"
+                            >{{ selectedCourse.code }} ·
+                            {{ selectedPart.label }}</span
+                        >{{
+                            assignmentStep === 'lecturers'
+                                ? 'Click lecturer names to select who will teach this part of the course, then continue.'
+                                : 'Enter the class size and allocated teaching hours for each selected lecturer.'
+                        }}</DialogDescription
+                    ></DialogHeader
                 ><template v-if="assignmentStep === 'lecturers'"
                     ><div class="relative">
                         <Search
@@ -979,198 +814,6 @@ const deleteReport = (report: ApprovalReport) => {
                     ></DialogFooter
                 >
             </form></DialogContent
-        ></Dialog
-    >
-    <Dialog :open="reportOpen" @update:open="reportOpen = $event"
-        ><DialogContent class="sm:max-w-xl"
-            ><form class="space-y-5" @submit.prevent="uploadReport">
-                <DialogHeader
-                    ><DialogTitle>Upload course report</DialogTitle
-                    ><DialogDescription
-                        >{{ reportCourse?.code }} - {{ reportCourse?.title }} is
-                        already linked to this report.</DialogDescription
-                    ></DialogHeader
-                >
-                <div class="grid gap-2">
-                    <label class="text-sm font-medium">Lecturer</label
-                    ><select
-                        v-model="reportForm.lecturer_id"
-                        class="h-10 rounded-md border px-3 text-sm"
-                        required
-                    >
-                        <option value="" disabled>
-                            Select assigned lecturer
-                        </option>
-                        <option
-                            v-for="lecturer in reportCourse?.lecturers ?? []"
-                            :key="lecturer.id"
-                            :value="lecturer.id"
-                        >
-                            {{ lecturer.name }} - {{ lecturer.email }}
-                        </option></select
-                    ><InputError :message="reportForm.errors.lecturer_id" />
-                </div>
-                <div class="grid gap-2">
-                    <label class="text-sm font-medium">Report title</label
-                    ><Input v-model="reportForm.title" required /><InputError
-                        :message="reportForm.errors.title"
-                    />
-                </div>
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="grid gap-2">
-                        <label class="text-sm font-medium">Academic year</label
-                        ><select
-                            v-model="reportForm.academic_year_id"
-                            class="h-10 rounded-md border px-3 text-sm"
-                            required
-                        >
-                            <option value="" disabled>Select year</option>
-                            <option
-                                v-for="year in academicYears"
-                                :key="year.id"
-                                :value="year.id"
-                            >
-                                {{ year.name }}
-                            </option></select
-                        ><InputError
-                            :message="reportForm.errors.academic_year_id"
-                        />
-                    </div>
-                    <div class="grid gap-2">
-                        <label class="text-sm font-medium">Category</label
-                        ><Input
-                            v-model="reportForm.category"
-                            required
-                        /><InputError :message="reportForm.errors.category" />
-                    </div>
-                </div>
-                <div class="grid gap-2">
-                    <label class="text-sm font-medium">PDF report</label
-                    ><Input
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        @input="
-                            reportForm.report_file =
-                                ($event.target as HTMLInputElement)
-                                    .files?.[0] ?? null
-                        "
-                    /><InputError :message="reportForm.errors.report_file" />
-                </div>
-                <div class="grid gap-2">
-                    <label class="text-sm font-medium">Summary</label
-                    ><textarea
-                        v-model="reportForm.summary"
-                        rows="4"
-                        class="rounded-md border px-3 py-2 text-sm"
-                    /><InputError :message="reportForm.errors.summary" />
-                </div>
-                <InputError
-                    :message="reportForm.errors.course_ids"
-                /><DialogFooter
-                    ><Button
-                        type="button"
-                        variant="secondary"
-                        @click="reportOpen = false"
-                        >Cancel</Button
-                    ><Button
-                        type="submit"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        :disabled="reportForm.processing"
-                        >{{
-                            reportForm.processing
-                                ? 'Uploading...'
-                                : 'Upload report'
-                        }}</Button
-                    ></DialogFooter
-                >
-            </form></DialogContent
-        ></Dialog
-    >
-    <Dialog :open="approvalsOpen" @update:open="approvalsOpen = $event"
-        ><DialogContent class="sm:max-w-2xl"
-            ><DialogHeader
-                ><DialogTitle>Course approvals</DialogTitle
-                ><DialogDescription
-                    >Reports awaiting approval or already approved for
-                    {{ approvalCourse?.code }} -
-                    {{ approvalCourse?.title }}.</DialogDescription
-                ></DialogHeader
-            >
-            <div class="max-h-96 space-y-3 overflow-y-auto">
-                <div
-                    v-for="report in approvalCourse?.reports ?? []"
-                    :key="report.id"
-                    class="rounded-lg border p-4"
-                >
-                    <div
-                        class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                        <div>
-                            <div class="font-medium">{{ report.title }}</div>
-                            <div class="text-sm text-muted-foreground">
-                                {{ report.lecturer ?? 'No lecturer' }}
-                                <span v-if="report.academicYear"
-                                    >- {{ report.academicYear }}</span
-                                >
-                            </div>
-                            <div
-                                class="mt-1 text-xs font-semibold uppercase"
-                                :class="
-                                    report.status === 'approved'
-                                        ? 'text-[#007a2f]'
-                                        : 'text-amber-700'
-                                "
-                            >
-                                {{ report.status.replace('_', ' ') }}
-                            </div>
-                        </div>
-                        <div
-                            v-if="canApproveReports"
-                            class="flex flex-wrap gap-2"
-                        >
-                            <Button
-                                v-if="report.status === 'under_review'"
-                                size="sm"
-                                class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                                @click="approvalAction(report, 'approve')"
-                                ><Check class="h-4 w-4" /> Approve</Button
-                            ><Button
-                                v-if="report.status === 'under_review'"
-                                size="sm"
-                                variant="outline"
-                                @click="approvalAction(report, 'return')"
-                                ><RotateCcw class="h-4 w-4" /> Return</Button
-                            ><Button
-                                v-if="report.status === 'under_review'"
-                                size="sm"
-                                variant="destructive"
-                                @click="deleteReport(report)"
-                                ><Trash2 class="h-4 w-4" /> Delete</Button
-                            ><Button
-                                v-if="report.status === 'approved'"
-                                size="sm"
-                                variant="outline"
-                                @click="approvalAction(report, 'unapprove')"
-                                ><RotateCcw class="h-4 w-4" /> Unapprove</Button
-                            >
-                        </div>
-                    </div>
-                </div>
-                <p
-                    v-if="(approvalCourse?.reports.length ?? 0) === 0"
-                    class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground"
-                >
-                    No reports are currently in this course's approval queue.
-                </p>
-            </div>
-            <DialogFooter
-                ><Button
-                    type="button"
-                    variant="secondary"
-                    @click="approvalsOpen = false"
-                    >Close</Button
-                ></DialogFooter
-            ></DialogContent
         ></Dialog
     >
 </template>

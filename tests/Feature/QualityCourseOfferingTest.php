@@ -236,7 +236,8 @@ test('the same catalogue course can be mounted for two programs in one semester'
         ->get("/quality/course-assignments?academic_year_id={$data['currentYear']->id}&semester_id={$semester->id}")
         ->assertInertia(fn (Assert $page) => $page
             ->has('courses', 1)
-            ->has('courses.0.variants', 2));
+            ->where('courses.0.cellCount', 2)
+            ->has('courses.0.programs', 2));
 
     $lecturer = User::factory()->create(['university_role' => UniversityRole::Lecturer]);
     foreach ([$data['program'], $secondProgram] as $program) {
@@ -258,7 +259,7 @@ test('the same catalogue course can be mounted for two programs in one semester'
         ->assertInertia(fn (Assert $page) => $page
             ->has('courses', 1)
             ->has('courses.0.programs', 2)
-            ->where('courses.0.level', '100'));
+            ->where('courses.0.levels.0', '100'));
 });
 
 test('an HOD can only mount courses for programs in their department', function () {

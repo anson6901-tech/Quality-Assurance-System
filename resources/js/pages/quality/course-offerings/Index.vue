@@ -2,8 +2,11 @@
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { Copy, Plus, Search, Trash2 } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
+import CourseList from '@/components/quality/CourseList.vue';
+import CourseRow from '@/components/quality/CourseRow.vue';
+import SplitMenu from '@/components/quality/SplitMenu.vue';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -277,27 +280,25 @@ const semesterLabel = (semester: Semester) => {
     <Head title="Mount Courses" />
 
     <div class="space-y-6">
-        <div
-            class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        <PageBanner
+            title="Mount Courses"
+            description="Choose which catalogue courses a program will run at each level in an academic year and semester."
         >
-            <Heading
-                variant="small"
-                title="Mount Courses"
-                description="Choose which catalogue courses a program will run at each level in an academic year and semester."
-            />
-            <Button
-                type="button"
-                variant="outline"
-                class="border-[#007a2f]/30 bg-white text-[#007a2f] hover:bg-[#e3f6eb]"
-                :disabled="!programId || !semesterId"
-                @click="openCopy"
-            >
-                <Copy /> Copy mounted courses
-            </Button>
-        </div>
+            <template #actions>
+                <Button
+                    type="button"
+                    variant="outline"
+                    class="border-[#007a2f]/30 bg-white text-[#007a2f] hover:bg-[#e3f6eb]"
+                    :disabled="!programId || !semesterId"
+                    @click="openCopy"
+                >
+                    <Copy /> Copy mounted courses
+                </Button>
+            </template>
+        </PageBanner>
 
         <div
-            class="grid min-w-0 gap-4 rounded-xl border border-[#9fd8b8] bg-[#edf9f2] p-4 sm:grid-cols-2 xl:grid-cols-4"
+            class="grid min-w-0 gap-4 rounded-xl border border-[#9fd8b8] bg-[#edf9f2] p-4 shadow-sm sm:grid-cols-2 lg:sticky lg:top-20 lg:z-20 xl:grid-cols-4"
         >
             <div class="grid min-w-0 gap-2">
                 <Label for="mount-year">Academic year</Label>
@@ -466,54 +467,102 @@ const semesterLabel = (semester: Semester) => {
                         for Level {{ programLevel }}
                     </p>
                 </div>
-                <div class="divide-y rounded-lg border">
-                    <div
+                <CourseList
+                    v-if="mountedCourses.length"
+                    :headings="[
+                        'Course',
+                        'School and department',
+                        'Type',
+                        'Lecturer',
+                        'Action',
+                    ]"
+                    columns="minmax(0,2fr) minmax(0,2fr) 100px minmax(140px,1fr) minmax(190px,auto)"
+                >
+                    <CourseRow
                         v-for="course in mountedCourses"
                         :key="course.id"
-                        class="flex items-start gap-3 px-4 py-4"
+                        :stripe-class="
+                            isAssigned(course.id)
+                                ? 'border-l-[#0f8a3e]'
+                                : 'border-l-[#d98a0b]'
+                        "
                     >
-                        <span class="min-w-0 flex-1">
-                            <span class="block font-medium">
-                                {{ course.code }} — {{ course.title }}
-                            </span>
-                            <span class="text-sm text-muted-foreground">
-                                Level {{ course.mountedLevel || 'not set' }} ·
-                                {{ course.courseType }} · {{ course.school }} /
+                        <div class="min-w-0">
+                            <div class="font-semibold text-[#075b2e]">
+                                {{ course.code }}
+                            </div>
+                            <div class="truncate text-sm text-[#3c5059]">
+                                {{ course.title }}
+                            </div>
+                        </div>
+                        <div class="min-w-0 text-sm">
+                            <div class="truncate text-[#1d2f37]">
                                 {{ course.department }}
+                            </div>
+                            <div class="truncate text-xs text-[#66808a]">
+                                {{ course.school }}
+                            </div>
+                        </div>
+                        <div>
+                            <span
+                                v-if="course.courseType === 'module'"
+                                class="rounded border border-[#d6c9f2] bg-[#f4effc] px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-[#56349c] uppercase"
+                            >
+                                Module
                             </span>
-                        </span>
-                        <span
-                            v-if="isAssigned(course.id)"
-                            class="rounded-full bg-[#dff3e7] px-2 py-1 text-xs font-medium text-[#006d2b]"
-                        >
-                            Lecturer assigned
-                        </span>
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            class="text-destructive"
-                            :disabled="
-                                form.processing ||
-                                removingCourseIds.includes(course.id)
-                            "
-                            @click="removeMountedCourse(course.id)"
-                        >
-                            <Trash2 class="size-4" />
-                            {{
-                                removingCourseIds.includes(course.id)
-                                    ? 'Removing...'
-                                    : 'Remove'
-                            }}
-                        </Button>
-                    </div>
-                    <p
-                        v-if="mountedCourses.length === 0"
-                        class="px-4 py-10 text-center text-sm text-muted-foreground"
-                    >
-                        No courses are mounted for this program and semester.
-                    </p>
-                </div>
+                            <span v-else class="text-sm text-[#3c5059]">
+                                Normal
+                            </span>
+                        </div>
+                        <div>
+                            <span
+                                class="inline-flex w-fit items-center rounded-full border px-2.5 py-0.5 text-xs font-medium"
+                                :class="
+                                    isAssigned(course.id)
+                                        ? 'border-[#a8dcbc] bg-[#e1f5e8] text-[#0b6130]'
+                                        : 'border-[#f5d48a] bg-[#fdf3d7] text-[#8a4b06]'
+                                "
+                            >
+                                {{
+                                    isAssigned(course.id)
+                                        ? 'Assigned'
+                                        : 'Not assigned'
+                                }}
+                            </span>
+                        </div>
+                        <div class="flex justify-start gap-1.5 md:justify-end">
+                            <SplitMenu
+                                :course-id="course.id"
+                                :course-code="course.code"
+                                :semester-id="Number(semesterId)"
+                            />
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                class="text-red-700 hover:bg-red-50 hover:text-red-800"
+                                :disabled="
+                                    form.processing ||
+                                    removingCourseIds.includes(course.id)
+                                "
+                                @click="removeMountedCourse(course.id)"
+                            >
+                                <Trash2 class="size-4" />
+                                {{
+                                    removingCourseIds.includes(course.id)
+                                        ? 'Removing...'
+                                        : 'Remove'
+                                }}
+                            </Button>
+                        </div>
+                    </CourseRow>
+                </CourseList>
+                <p
+                    v-else
+                    class="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground"
+                >
+                    No courses are mounted for this program and semester.
+                </p>
             </div>
         </div>
 

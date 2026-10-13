@@ -3,8 +3,8 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import { Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { ref } from 'vue';
 import BulkImportDialog from '@/components/BulkImportDialog.vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -114,31 +114,29 @@ const deleteSchool = (school: SchoolRow) => {
 
     <div class="space-y-8">
         <section class="space-y-6">
-            <div
-                class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+            <PageBanner
+                title="Schools"
+                description="University schools used to scope dean access and QA reports"
             >
-                <Heading
-                    variant="small"
-                    title="Schools"
-                    description="University schools used to scope dean access and QA reports"
-                />
-                <div class="flex flex-wrap gap-2">
-                    <BulkImportDialog
-                        title="Bulk add schools"
-                        description="Download the exact school template before importing."
-                        template-url="/quality/bulk/schools/template"
-                        import-url="/quality/bulk/schools"
-                        columns="name, code"
-                    />
-                    <Button
-                        type="button"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        @click="addOpen = true"
-                    >
-                        <Plus /> Add school
-                    </Button>
-                </div>
-            </div>
+                <template #actions>
+                    <div class="flex flex-wrap gap-2">
+                        <BulkImportDialog
+                            title="Bulk add schools"
+                            description="Download the exact school template before importing."
+                            template-url="/quality/bulk/schools/template"
+                            import-url="/quality/bulk/schools"
+                            columns="name, code"
+                        />
+                        <Button
+                            type="button"
+                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                            @click="addOpen = true"
+                        >
+                            <Plus /> Add school
+                        </Button>
+                    </div>
+                </template>
+            </PageBanner>
 
             <div
                 class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"

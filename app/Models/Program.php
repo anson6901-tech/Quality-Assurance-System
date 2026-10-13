@@ -40,4 +40,10 @@ class Program extends Model
     {
         return $this->hasMany(CourseOffering::class);
     }
+
+    /** @return HasMany<Section, $this> */
+    public function sections(): HasMany
+    {
+        return $this->hasMany(Section::class)->orderBy('type')->orderBy('is_weekend');
+    }
 }

@@ -12,8 +12,8 @@ import {
     Upload,
 } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -247,34 +247,32 @@ const deleteUser = (user: UserRow) => {
 
     <div class="space-y-8">
         <section class="space-y-6">
-            <div
-                class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+            <PageBanner
+                title="Users"
+                description="Create users and assign role-based access"
             >
-                <Heading
-                    variant="small"
-                    title="Users"
-                    description="Create users and assign role-based access"
-                />
-                <div class="flex flex-wrap gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        class="border-[#007a2f]/30 bg-white text-[#007a2f] hover:bg-[#e3f6eb]"
-                        @click="bulkOpen = true"
-                    >
-                        <Upload class="size-4" />
-                        Bulk users
-                    </Button>
-                    <Button
-                        type="button"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        @click="openCreate"
-                    >
-                        <Plus class="size-4" />
-                        Add user
-                    </Button>
-                </div>
-            </div>
+                <template #actions>
+                    <div class="flex flex-wrap gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            class="border-[#007a2f]/30 bg-white text-[#007a2f] hover:bg-[#e3f6eb]"
+                            @click="bulkOpen = true"
+                        >
+                            <Upload class="size-4" />
+                            Bulk users
+                        </Button>
+                        <Button
+                            type="button"
+                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                            @click="openCreate"
+                        >
+                            <Plus class="size-4" />
+                            Add user
+                        </Button>
+                    </div>
+                </template>
+            </PageBanner>
 
             <div
                 class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"

@@ -5,11 +5,17 @@ namespace App\Http\Controllers\Quality;
 use App\Http\Controllers\Controller;
 use App\Models\AcademicYear;
 use App\Models\Course;
+use App\Models\CourseSplit;
 use App\Models\Program;
 use App\Models\QualityRolePermission;
+use App\Models\Semester;
 use App\Models\User;
+use App\Support\CourseBoard;
+use App\Support\CoursePartitions;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -42,102 +48,15 @@ class CourseAssignmentController extends Controller
         }
 
         return Inertia::render('quality/course-assignments/Index', [
-            'courses' => Course::query()
-                ->when(! $semesterId, fn ($query) => $query->whereRaw('1 = 0'))
-                ->with([
-                    'department.school:id,name',
-                    'lecturers' => fn ($query) => $query->wherePivot('semester_id', $semesterId),
-                    'offerings' => fn ($query) => $query
-                        ->where('semester_id', $semesterId)
-                        ->with('program:id,department_id,name,code'),
-                    ...($canViewApprovals ? ['qualityReports' => fn ($query) => $query
-                        ->whereIn('status', ['under_review', 'approved'])
-                        ->where('semester_id', $semesterId)
-                        ->visibleTo($request->user())
-                        ->with(['lecturer:id,name,email', 'academicYear:id,name'])
-                        ->latest()] : []),
-                ])
-                ->whereHas('offerings', fn ($query) => $query
-                    ->where('semester_id', $semesterId)
-                    ->when(
-                        ! $canManageStructure && ! $request->user()->canUploadQualityReports(),
-                        fn ($query) => $query->whereHas(
-                            'program',
-                            fn ($query) => $query->where('department_id', $request->user()->department_id),
-                        ),
-                    ))
-                ->join('departments', 'departments.id', '=', 'courses.department_id')
-                ->join('schools', 'schools.id', '=', 'departments.school_id')
-                ->orderBy('schools.name')
-                ->orderBy('departments.name')
-                ->orderBy('courses.code')
-                ->select('courses.*')
-                ->get()
-                ->flatMap(fn (Course $course) => $course->offerings->map(fn ($offering) => [
-                    'offeringId' => $offering->id,
-                    'id' => $course->id,
-                    'code' => $course->code,
-                    'title' => $course->title,
-                    'courseType' => $course->course_type,
-                    'program' => $offering->program ? [
-                        'id' => $offering->program->id,
-                        'name' => $offering->program->name,
-                        'code' => $offering->program->code,
-                    ] : null,
-                    'level' => $offering->level ?? $course->level,
-                    'department' => [
-                        'name' => $course->department->name,
-                        'school' => ['name' => $course->department->school->name],
-                    ],
-                    'lecturers' => $course->lecturers
-                        ->where('pivot.program_id', $offering->program_id)
-                        ->map(fn (User $lecturer) => [
-                        'id' => $lecturer->id,
-                        'name' => $lecturer->name,
-                        'email' => $lecturer->email,
-                        'studentCount' => $lecturer->pivot->student_count,
-                        'allocatedHours' => $lecturer->pivot->allocated_hours,
-                        ])->values(),
-                    'reports' => $canViewApprovals
-                        ? $course->qualityReports->map(fn ($report) => [
-                            'id' => $report->id,
-                            'title' => $report->title,
-                            'status' => $report->status,
-                            'lecturer' => $report->lecturer?->name,
-                            'academicYear' => $report->academicYear?->name,
-                        ])
-                        : [],
-                ]))
-                ->groupBy(fn (array $row): string => strtolower(trim($row['code'])))
-                ->map(function ($rows): array {
-                    $row = $rows->first();
-                    $row['offeringIds'] = $rows->pluck('offeringId')->values();
-                    $row['programs'] = $rows->pluck('program')->filter()->unique('id')->values();
-                    $row['programIds'] = $row['programs']->pluck('id')->values();
-                    $row['levels'] = $rows->pluck('level')->filter()->unique()->sort()->values();
-                    $row['variants'] = $rows->map(function (array $variant): array {
-                        $variant['offeringIds'] = collect([$variant['offeringId']]);
-                        $variant['programs'] = collect([$variant['program']])->filter()->values();
-                        $variant['programIds'] = $variant['programs']->pluck('id')->values();
-                        $variant['levels'] = collect([$variant['level']])->filter()->values();
-                        $variant['variants'] = [];
-
-                        return $variant;
-                    })->values();
-
-                    $lecturerSignatures = $rows->map(
-                        fn (array $variant) => collect($variant['lecturers'])->pluck('id')->sort()->implode(','),
-                    )->unique();
-                    $row['hasDifferentLecturers'] = $lecturerSignatures->count() > 1;
-                    if ($row['hasDifferentLecturers']) {
-                        $row['lecturers'] = collect();
-                    }
-
-                    return $row;
-                })
+            'courses' => $this->boardCourses($request, $semesterId, $canManageStructure, $canViewApprovals),
+            'splitModes' => collect(CoursePartitions::MODES)
+                ->map(fn (string $label, string $value) => ['value' => $value, 'label' => $label])
                 ->values(),
+            'canManageAssignments' => $this->canManageAssignments($request->user()),
+            'canManageStructure' => $canManageStructure,
             'lecturers' => User::query()
                 ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
+                ->where('is_active', true)
                 ->orderBy('name')
                 ->get(['id', 'name', 'email'])
                 ->map(fn (User $lecturer) => [
@@ -163,37 +82,55 @@ class CourseAssignmentController extends Controller
             'lecturer_ids' => ['present', 'array'],
             'lecturer_ids.*' => ['integer', Rule::exists('users', 'id')],
             'semester_id' => ['required', 'integer', Rule::exists('semesters', 'id')],
-            'program_ids' => ['required', 'array', 'min:1'],
+            'cells' => ['required_without:program_ids', 'array', 'min:1'],
+            'cells.*.program_id' => ['nullable', 'integer', Rule::exists('programs', 'id')],
+            'cells.*.section_id' => ['nullable', 'integer', Rule::exists('sections', 'id')],
+            'program_ids' => ['required_without:cells', 'array', 'min:1'],
             'program_ids.*' => ['integer', Rule::exists('programs', 'id')],
             'assignments' => ['present', 'array'],
             'assignments.*.student_count' => ['nullable', 'integer', 'min:1'],
             'assignments.*.allocated_hours' => ['nullable', 'integer', 'min:1', 'max:168'],
         ]);
 
-        $programs = Program::query()->whereIn('id', $validated['program_ids'])->get();
-        abort_unless($programs->count() === count(array_unique($validated['program_ids'])), 422);
+        $semesterId = (int) $validated['semester_id'];
+        $course->load(CourseBoard::relations([$semesterId]));
+        $courseCells = CoursePartitions::cells($course, $semesterId);
+
         abort_if(
-            ! $request->user()->canManageQualityStructure()
-                && $programs->contains(fn (Program $program) => $program->department_id !== $request->user()->department_id),
-            403,
+            $courseCells->isEmpty(),
+            422,
+            __('This course must be mounted for the selected semester before a lecturer can be assigned.'),
         );
+
+        $cells = isset($validated['cells'])
+            ? collect($validated['cells'])->map(fn (array $cell) => $courseCells->first(
+                fn (array $courseCell) => $courseCell['programId'] === (isset($cell['program_id']) ? (int) $cell['program_id'] : null)
+                    && $courseCell['sectionId'] === (isset($cell['section_id']) ? (int) $cell['section_id'] : null),
+            ))
+            : $courseCells->whereIn('programId', array_map('intval', $validated['program_ids']))->values();
+
+        if (isset($validated['program_ids'])) {
+            abort_unless(
+                collect($validated['program_ids'])->unique()->every(
+                    fn ($programId) => $courseCells->contains('programId', (int) $programId),
+                ),
+                422,
+                __('This course must be mounted for the selected semester before a lecturer can be assigned.'),
+            );
+        }
+
+        abort_if($cells->isEmpty() || $cells->contains(null), 422, __('Select parts of this course that are mounted for the semester.'));
+        $this->authorizeCells($request->user(), $cells);
 
         $lecturerIds = collect($validated['lecturer_ids'])->unique()->values();
         $eligibleLecturers = User::query()
             ->whereIn('id', $lecturerIds)
             ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
+            ->where('is_active', true)
             ->count();
 
         abort_unless($eligibleLecturers === $lecturerIds->count(), 422);
         abort_unless($course->course_type === 'module' || $lecturerIds->count() <= 1, 422);
-        abort_unless(
-            $course->offerings()
-                ->where('semester_id', $validated['semester_id'])
-                ->whereIn('program_id', $validated['program_ids'])
-                ->count() === count(array_unique($validated['program_ids'])),
-            422,
-            __('This course must be mounted for the selected semester before a lecturer can be assigned.'),
-        );
 
         $assignments = $lecturerIds->mapWithKeys(function (int $lecturerId) use ($validated): array {
             $assignment = $validated['assignments'][$lecturerId] ?? null;
@@ -211,20 +148,21 @@ class CourseAssignmentController extends Controller
             ]];
         });
 
-        DB::transaction(function () use ($course, $validated, $assignments): void {
-            DB::table('course_lecturer')
+        DB::transaction(function () use ($course, $semesterId, $cells, $assignments): void {
+            $query = DB::table('course_lecturer')
                 ->where('course_id', $course->id)
-                ->where('semester_id', $validated['semester_id'])
-                ->whereIn('program_id', $validated['program_ids'])
-                ->delete();
+                ->where('semester_id', $semesterId);
+            CourseBoard::whereCells($query, $cells);
+            $query->delete();
 
-            $rows = collect($validated['program_ids'])->flatMap(
-                fn (int $programId) => collect($assignments)->map(
+            $rows = $cells->flatMap(
+                fn (array $cell) => collect($assignments)->map(
                     fn (array $assignment, int $lecturerId) => [
                         'course_id' => $course->id,
-                        'program_id' => $programId,
+                        'program_id' => $cell['programId'],
+                        'section_id' => $cell['sectionId'],
                         'lecturer_id' => $lecturerId,
-                        'semester_id' => $validated['semester_id'],
+                        'semester_id' => $semesterId,
                         ...$assignment,
                         'created_at' => now(),
                         'updated_at' => now(),
@@ -240,6 +178,173 @@ class CourseAssignmentController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Lecturer assignments saved.')]);
 
         return to_route('quality.course-assignments.index');
+    }
+
+    public function split(Request $request, Course $course): RedirectResponse
+    {
+        abort_unless($this->canManageAssignments($request->user()), 403);
+        $validated = $request->validate([
+            'semester_id' => ['required', 'integer', Rule::exists('semesters', 'id')],
+            'mode' => ['required', 'string', Rule::in(array_keys(CoursePartitions::MODES))],
+        ]);
+
+        $semesterId = (int) $validated['semester_id'];
+        $course->load(CourseBoard::relations([$semesterId]));
+        $cells = CoursePartitions::cells($course, $semesterId);
+        abort_if($cells->isEmpty(), 422, __('Mount this course for the semester before splitting it.'));
+        $this->authorizeCourse($request->user(), $course, $cells);
+
+        CourseSplit::query()->updateOrCreate(
+            ['course_id' => $course->id, 'semester_id' => $semesterId],
+            ['mode' => $validated['mode']],
+        );
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __(':code split by :mode.', [
+            'code' => $course->code,
+            'mode' => strtolower(CoursePartitions::MODES[$validated['mode']]),
+        ])]);
+
+        return back();
+    }
+
+    /**
+     * Parts of a course for each semester it is mounted in, used by the split dialog on any page.
+     */
+    public function splitOptions(Request $request, Course $course): JsonResponse
+    {
+        abort_unless($this->canManageAssignments($request->user()), 403);
+        $validated = $request->validate([
+            'semester_id' => ['nullable', 'integer', Rule::exists('semesters', 'id')],
+        ]);
+
+        $semesters = Semester::query()
+            ->with('academicYear:id,name,status')
+            ->whereIn('id', $course->offerings()->select('semester_id'))
+            ->when($validated['semester_id'] ?? null, fn ($query, $semesterId) => $query->whereKey($semesterId))
+            ->get()
+            ->sortBy([
+                fn (Semester $semester) => $semester->academicYear?->status === 'active' ? 0 : 1,
+                fn (Semester $semester) => $semester->academicYear?->name,
+                fn (Semester $semester) => $semester->sequence,
+            ])
+            ->values();
+
+        $course->load(CourseBoard::relations($semesters->pluck('id')->all()));
+
+        return response()->json([
+            'semesters' => $semesters->map(fn (Semester $semester) => [
+                'id' => $semester->id,
+                'label' => trim(($semester->academicYear?->name ?? '').' · '.$semester->name, ' ·'),
+                'mode' => CourseBoard::modeFor($course, $semester->id),
+                'cells' => CoursePartitions::cells($course, $semester->id),
+            ])->values(),
+        ]);
+    }
+
+    public function merge(Request $request, Course $course): RedirectResponse
+    {
+        abort_unless($this->canManageAssignments($request->user()), 403);
+        $validated = $request->validate([
+            'semester_id' => ['required', 'integer', Rule::exists('semesters', 'id')],
+        ]);
+
+        $semesterId = (int) $validated['semester_id'];
+        $course->load(CourseBoard::relations([$semesterId]));
+        $this->authorizeCourse($request->user(), $course, CoursePartitions::cells($course, $semesterId));
+
+        CourseSplit::query()
+            ->where('course_id', $course->id)
+            ->where('semester_id', $semesterId)
+            ->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __(':code merged back into one course.', [
+            'code' => $course->code,
+        ])]);
+
+        return back();
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function boardCourses(Request $request, ?int $semesterId, bool $canManageStructure, bool $canViewApprovals)
+    {
+        if (! $semesterId) {
+            return collect();
+        }
+
+        $courses = Course::query()
+            ->with(CourseBoard::relations([$semesterId]))
+            ->with($canViewApprovals ? ['qualityReports' => fn ($query) => $query
+                ->whereIn('status', ['under_review', 'approved'])
+                ->where('semester_id', $semesterId)
+                ->visibleTo($request->user())
+                ->with(['lecturer:id,name,email', 'academicYear:id,name'])
+                ->latest()] : [])
+            ->whereHas('offerings', fn ($query) => $query
+                ->where('semester_id', $semesterId)
+                ->when(
+                    ! $canManageStructure && ! $request->user()->canUploadQualityReports(),
+                    fn ($query) => $query->whereHas(
+                        'program',
+                        fn ($query) => $query->where('department_id', $request->user()->department_id),
+                    ),
+                ))
+            ->orderBy('code')
+            ->get();
+
+        $rows = CourseBoard::assignmentRows($courses->pluck('id'), [$semesterId]);
+
+        return CourseBoard::entries($courses, [$semesterId], $rows)
+            ->map(function (array $entry) use ($courses, $canViewApprovals): array {
+                $course = $courses->firstWhere('id', $entry['id']);
+                $entry['reports'] = $canViewApprovals
+                    ? $course->qualityReports->map(fn ($report) => [
+                        'id' => $report->id,
+                        'title' => $report->title,
+                        'status' => $report->status,
+                        'lecturer' => $report->lecturer?->name,
+                        'academicYear' => $report->academicYear?->name,
+                    ])->values()
+                    : [];
+
+                return $entry;
+            });
+    }
+
+    /**
+     * Heads of department may split or merge courses their department owns or only offers in its programs.
+     *
+     * @param  Collection<int, array<string, mixed>>  $cells
+     */
+    private function authorizeCourse(User $user, Course $course, $cells): void
+    {
+        if ($user->canManageQualityStructure() || $course->department_id === $user->department_id) {
+            return;
+        }
+
+        $this->authorizeCells($user, $cells);
+    }
+
+    /**
+     * Heads of department may only change parts of courses in their own department's programs.
+     *
+     * @param  Collection<int, array<string, mixed>>  $cells
+     */
+    private function authorizeCells(User $user, $cells): void
+    {
+        if ($user->canManageQualityStructure()) {
+            return;
+        }
+
+        $programDepartments = Program::query()
+            ->whereIn('id', $cells->pluck('programId')->filter()->unique())
+            ->pluck('department_id');
+
+        abort_if(
+            $programDepartments->contains(fn ($departmentId) => $departmentId !== $user->department_id),
+            403,
+        );
     }
 
     private function canManageAssignments(User $user): bool

@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'school_id',
     'department_id',
     'program_id',
+    'section_id',
     'lecturer_id',
     'uploaded_by',
     'assigned_supervisor_id',
@@ -64,6 +65,12 @@ class QualityReport extends Model
     public function program(): BelongsTo
     {
         return $this->belongsTo(Program::class);
+    }
+
+    /** @return BelongsTo<Section, $this> */
+    public function section(): BelongsTo
+    {
+        return $this->belongsTo(Section::class);
     }
 
     /**

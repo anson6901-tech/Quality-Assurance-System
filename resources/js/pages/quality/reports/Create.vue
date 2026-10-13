@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { Head, useForm } from '@inertiajs/vue3';
-import {
-    Combine,
-    FileText,
-    Send,
-    Split,
-    Trash2,
-    Upload,
-    X,
-} from 'lucide-vue-next';
+import { Head, router, useForm } from '@inertiajs/vue3';
+import { FileText, Send, Trash2, Upload, X } from 'lucide-vue-next';
 import { computed, nextTick, ref, watch } from 'vue';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
+import CourseList from '@/components/quality/CourseList.vue';
+import CourseRow from '@/components/quality/CourseRow.vue';
+import CourseScopeCell from '@/components/quality/CourseScopeCell.vue';
+import CourseSearch from '@/components/quality/CourseSearch.vue';
+import CourseTitleCell from '@/components/quality/CourseTitleCell.vue';
+import LecturerCell from '@/components/quality/LecturerCell.vue';
+import PartLabelCell from '@/components/quality/PartLabelCell.vue';
+import SplitMenu from '@/components/quality/SplitMenu.vue';
+import StatusPill from '@/components/quality/StatusPill.vue';
+import StatusSummary from '@/components/quality/StatusSummary.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,53 +26,41 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
-import type { AcademicYearOption, CourseOption } from '@/types';
+import { useSearchParam } from '@/composables/useSearchParam';
+import { matchesSearch } from '@/lib/coursePartitions';
+import { toReportStatus } from '@/lib/reportStatus';
+import type { ReportStatusKey } from '@/lib/reportStatus';
+import type {
+    AcademicYearOption,
+    CourseEntry,
+    CoursePart,
+    PartLecturer,
+} from '@/types';
 
-interface CourseWithLecturers extends CourseOption {
-    offeringId: number;
-    courseType: 'normal' | 'module';
-    program: { id: number; name: string; code: string } | null;
-    lecturerCount: number;
-    lecturers: Array<{
-        id: number;
-        name: string;
-        email: string;
-        semesterId: number | null;
-    }>;
-    department?: {
-        id: number;
-        name: string;
-        schoolId: number;
-        school: { id: number; name: string } | null;
-    };
-    reports: Array<{
-        id: number;
-        lecturerId: number;
-        semesterId: number;
-        title: string;
-        status: string;
-        uploadedAt: string;
-        pushedAt: string | null;
-    }>;
-}
-
-type AssignmentRow = {
-    course: CourseWithLecturers;
-    lecturer: CourseWithLecturers['lecturers'][number];
-    lecturers: CourseWithLecturers['lecturers'];
-    report: CourseWithLecturers['reports'][number] | undefined;
-    programs: Array<{ id: number; name: string; code: string }>;
-    levels: string[];
-    variants: AssignmentRow[];
-    groupKey: string;
-    mixedStatus: boolean;
-};
-
-interface Department {
+type UploadReport = {
     id: number;
-    name: string;
-}
+    lecturerId: number;
+    programId: number | null;
+    sectionId: number | null;
+    title: string;
+    status: string;
+    uploadedAt: string;
+    pushedAt: string | null;
+};
+type UploadPart = CoursePart & { reports: UploadReport[] };
+type UploadCourse = CourseEntry<UploadPart>;
+
+/** One report slot: a course part taught by one lecturer. */
+type UploadUnit = {
+    key: string;
+    course: UploadCourse;
+    part: UploadPart;
+    lecturer: PartLecturer;
+    reports: UploadReport[];
+    status: ReportStatusKey;
+    mixed: boolean;
+    missingCells: number;
+};
 
 interface Semester {
     id: number;
@@ -81,9 +71,9 @@ interface Semester {
 const props = defineProps<{
     academicYears: AcademicYearOption[];
     semesters: Semester[];
-    departments: Department[];
+    departments: Array<{ id: number; name: string }>;
     supervisors: Array<{ id: number; name: string; email: string }>;
-    courses: CourseWithLecturers[];
+    courses: UploadCourse[];
     defaultAcademicYearId?: number;
     defaultSemesterId?: number;
 }>();
@@ -97,23 +87,22 @@ defineOptions({
     },
 });
 
-const courseCodeSearch = ref('');
+const courseCodeSearch = ref(useSearchParam('search'));
 const schoolFilter = ref('');
 const departmentFilter = ref('');
 const programFilter = ref('');
 const levelFilter = ref('');
 const courseTypeFilter = ref('');
 const lecturerFilter = ref('');
+const statusFilter = ref<ReportStatusKey | ''>('');
 const fileInput = ref<HTMLInputElement | null>(null);
 const uploadOpen = ref(false);
 const uploadCourseCode = ref('');
-const uploadProgramOptions = ref<
-    Array<{ id: number; name: string; code: string }>
->([]);
+const uploadScope = ref<string[]>([]);
 const selectedReportIds = ref<number[]>([]);
 const supervisorPickerOpen = ref(false);
 const pendingPushReportIds = ref<number[]>([]);
-const draftToDelete = ref<number | null>(null);
+const draftToDelete = ref<number[] | null>(null);
 
 const form = useForm({
     title: '',
@@ -122,21 +111,15 @@ const form = useForm({
         ? String(props.defaultAcademicYearId)
         : '',
     semester_id: props.defaultSemesterId ? String(props.defaultSemesterId) : '',
-    program_id: '',
-    program_ids: [] as number[],
+    cells: [] as Array<{
+        program_id: number | null;
+        section_id: number | null;
+    }>,
     lecturer_id: '',
     course_ids: [] as number[],
     report_file: null as File | null,
     summary: '',
 });
-
-const {
-    splitCourseCodes: splitAssignmentGroups,
-    toggleCourseSplit: toggleAssignmentSplit,
-} = useCourseOfferingSplits(
-    () => form.academic_year_id,
-    () => form.semester_id,
-);
 
 const pushForm = useForm({
     supervisor_id: '',
@@ -153,113 +136,194 @@ const semestersForYear = computed(() =>
 );
 
 const coursesForSemester = computed(() =>
-    props.courses
-        .map((course) => ({
-            ...course,
-            lecturers: course.lecturers.filter(
-                (lecturer) =>
-                    lecturer.semesterId === null ||
-                    lecturer.semesterId === Number(form.semester_id),
-            ),
-        }))
-        .filter((course) => course.lecturers.length > 0),
-);
-
-const schools = computed(() => [
-    ...new Set(
-        coursesForSemester.value
-            .map((course) => course.department?.school?.name)
-            .filter((name): name is string => Boolean(name)),
+    props.courses.filter(
+        (course) => course.semesterId === Number(form.semester_id),
     ),
+);
+const schoolName = (course: UploadCourse) =>
+    course.department?.school?.name ?? '';
+const schools = computed(() => [
+    ...new Set(coursesForSemester.value.map(schoolName).filter(Boolean)),
 ]);
-
 const availableDepartments = computed(() => [
     ...new Set(
         coursesForSemester.value
             .filter(
                 (course) =>
                     !schoolFilter.value ||
-                    course.department?.school?.name === schoolFilter.value,
+                    schoolName(course) === schoolFilter.value,
             )
-            .map((course) => course.department?.name)
-            .filter((name): name is string => Boolean(name)),
+            .map((course) => course.department?.name ?? '')
+            .filter(Boolean),
     ),
 ]);
-
-const programs = computed(() => {
-    const uniquePrograms = new Map<
-        number,
-        { id: number; name: string; code: string }
-    >();
-
+const programs = computed(() =>
     coursesForSemester.value
         .filter(
             (course) =>
                 (!schoolFilter.value ||
-                    course.department?.school?.name === schoolFilter.value) &&
+                    schoolName(course) === schoolFilter.value) &&
                 (!departmentFilter.value ||
                     course.department?.name === departmentFilter.value),
         )
-        .forEach((course) => {
-            if (course.program) {
-                uniquePrograms.set(course.program.id, course.program);
+        .flatMap((course) => course.programs)
+        .filter(
+            (program, index, values) =>
+                values.findIndex((value) => value.id === program.id) === index,
+        ),
+);
+const lecturers = computed(() =>
+    coursesForSemester.value
+        .flatMap((course) => course.parts.flatMap((part) => part.lecturers))
+        .filter(
+            (lecturer, index, values) =>
+                values.findIndex((value) => value.id === lecturer.id) === index,
+        )
+        .sort((a, b) => a.name.localeCompare(b.name)),
+);
+const levels = computed(() =>
+    [
+        ...new Set(coursesForSemester.value.flatMap((course) => course.levels)),
+    ].sort((left, right) => Number(left) - Number(right)),
+);
+
+const unitsFor = (course: UploadCourse): UploadUnit[] =>
+    course.parts.flatMap((part) =>
+        part.lecturers.map((lecturer) => {
+            const reports = part.reports.filter(
+                (report) => report.lecturerId === lecturer.id,
+            );
+            const statuses = new Set(
+                reports.map((report) => toReportStatus(report.status)),
+            );
+            const missingCells = Math.max(
+                part.cells.length - reports.length,
+                0,
+            );
+
+            if (reports.length && missingCells) {
+                statuses.add('not_uploaded');
             }
-        });
 
-    return [...uniquePrograms.values()];
-});
-
-const lecturers = computed(() => {
-    const uniqueLecturers = new Map<
-        number,
-        { id: number; name: string; email: string }
-    >();
-
-    coursesForSemester.value.forEach((course) => {
-        course.lecturers.forEach((lecturer) => {
-            uniqueLecturers.set(lecturer.id, lecturer);
-        });
-    });
-
-    return [...uniqueLecturers.values()].sort((a, b) =>
-        a.name.localeCompare(b.name),
+            return {
+                key: `${part.key}:${lecturer.id}`,
+                course,
+                part,
+                lecturer,
+                reports,
+                status: reports.length
+                    ? toReportStatus(reports[0].status)
+                    : 'not_uploaded',
+                mixed: statuses.size > 1,
+                missingCells,
+            };
+        }),
     );
-});
 
 const filteredCourses = computed(() =>
     coursesForSemester.value.filter((course) => {
-        const courseTerm = courseCodeSearch.value.trim().toLowerCase();
-
         return (
-            (!courseTerm ||
-                `${course.code} ${course.title}`
-                    .toLowerCase()
-                    .includes(courseTerm)) &&
+            matchesSearch(courseCodeSearch.value, [
+                course.code,
+                course.title,
+                course.department?.name,
+                ...course.programs.flatMap((program) => [
+                    program.code,
+                    program.name,
+                ]),
+                ...course.parts.flatMap((part) =>
+                    part.lecturers.map((lecturer) => lecturer.name),
+                ),
+            ]) &&
             (!schoolFilter.value ||
-                course.department?.school?.name === schoolFilter.value) &&
+                schoolName(course) === schoolFilter.value) &&
             (!departmentFilter.value ||
                 course.department?.name === departmentFilter.value) &&
             (!programFilter.value ||
-                String(course.program?.id) === programFilter.value) &&
-            (!levelFilter.value || course.level === levelFilter.value) &&
+                course.programs.some(
+                    (program) => String(program.id) === programFilter.value,
+                )) &&
+            (!levelFilter.value || course.levels.includes(levelFilter.value)) &&
             (!courseTypeFilter.value ||
                 course.courseType === courseTypeFilter.value) &&
             (!lecturerFilter.value ||
-                course.lecturers.some(
-                    (lecturer) => String(lecturer.id) === lecturerFilter.value,
+                unitsFor(course).some(
+                    (unit) => String(unit.lecturer.id) === lecturerFilter.value,
                 ))
         );
     }),
 );
-const levels = computed(() =>
-    [
-        ...new Set(
-            coursesForSemester.value
-                .map((course) => course.level)
-                .filter(Boolean),
-        ),
-    ].sort((left, right) => Number(left) - Number(right)),
+
+const statusCounts = computed(() =>
+    filteredCourses.value
+        .flatMap(unitsFor)
+        .reduce<Partial<Record<ReportStatusKey, number>>>((counts, unit) => {
+            counts[unit.status] = (counts[unit.status] ?? 0) + 1;
+
+            return counts;
+        }, {}),
 );
+const displayCourses = computed(() =>
+    statusFilter.value
+        ? filteredCourses.value.filter((course) =>
+              unitsFor(course).some(
+                  (unit) => unit.status === statusFilter.value,
+              ),
+          )
+        : filteredCourses.value,
+);
+const courseStatus = (course: UploadCourse) => {
+    const units = unitsFor(course);
+    const statuses = new Set(units.map((unit) => unit.status));
+
+    return {
+        status: units[0]?.status ?? 'not_uploaded',
+        mixed: statuses.size > 1 || units.some((unit) => unit.mixed),
+    };
+};
+const showUnitRows = (course: UploadCourse) =>
+    course.splitMode !== 'merged' || unitsFor(course).length > 1;
+
+const draftIds = (unit: UploadUnit) =>
+    unit.reports
+        .filter((report) => report.status === 'draft')
+        .map((report) => report.id);
+const visibleDraftReportIds = computed(() => [
+    ...new Set(displayCourses.value.flatMap(unitsFor).flatMap(draftIds)),
+]);
+const unitSelected = (unit: UploadUnit) => {
+    const ids = draftIds(unit);
+
+    return (
+        ids.length > 0 &&
+        ids.every((id) => selectedReportIds.value.includes(id))
+    );
+};
+const toggleUnit = (unit: UploadUnit) => {
+    const ids = draftIds(unit);
+    selectedReportIds.value = unitSelected(unit)
+        ? selectedReportIds.value.filter((id) => !ids.includes(id))
+        : [...new Set([...selectedReportIds.value, ...ids])];
+};
+const allVisibleDraftsSelected = computed(
+    () =>
+        visibleDraftReportIds.value.length > 0 &&
+        visibleDraftReportIds.value.every((id) =>
+            selectedReportIds.value.includes(id),
+        ),
+);
+const toggleAllVisibleDrafts = () => {
+    selectedReportIds.value = allVisibleDraftsSelected.value
+        ? selectedReportIds.value.filter(
+              (id) => !visibleDraftReportIds.value.includes(id),
+          )
+        : [
+              ...new Set([
+                  ...selectedReportIds.value,
+                  ...visibleDraftReportIds.value,
+              ]),
+          ];
+};
 
 const canSubmit = computed(
     () =>
@@ -267,7 +331,7 @@ const canSubmit = computed(
         form.academic_year_id !== '' &&
         form.semester_id !== '' &&
         form.course_ids.length > 0 &&
-        (form.program_id !== '' || form.program_ids.length > 0) &&
+        form.cells.length > 0 &&
         form.report_file !== null &&
         !form.processing,
 );
@@ -280,177 +344,29 @@ watch(
     },
 );
 
-watch(
-    () => form.semester_id,
-    () => {
-        form.course_ids = [];
-    },
-);
+const startUpload = async (unit: UploadUnit) => {
+    const uploaded = new Set(
+        unit.reports.map((report) => `${report.programId}:${report.sectionId}`),
+    );
+    const cells = unit.part.cells.filter(
+        (cell) => !uploaded.has(`${cell.programId}:${cell.sectionId}`),
+    );
 
-const startUpload = async (course: CourseWithLecturers, lecturerId: number) => {
-    uploadCourseCode.value = course.code;
-    uploadProgramOptions.value = course.program ? [course.program] : [];
-    form.program_ids = [];
-    form.course_ids = [course.id];
-    form.program_id = course.program ? String(course.program.id) : '';
-    form.lecturer_id = String(lecturerId);
-    form.title = `Lecture evaluation - ${course.code}`;
+    uploadCourseCode.value = `${unit.course.code} · ${unit.part.label}`;
+    uploadScope.value = cells.map((cell) =>
+        [cell.program?.name, cell.section?.name].filter(Boolean).join(' — '),
+    );
+    form.course_ids = [unit.course.id];
+    form.cells = cells.map((cell) => ({
+        program_id: cell.programId,
+        section_id: cell.sectionId,
+    }));
+    form.lecturer_id = String(unit.lecturer.id);
+    form.title = `Lecture evaluation - ${unit.course.code}`;
     form.clearErrors();
 
     await nextTick();
     uploadOpen.value = true;
-};
-
-const mainUploadableVariants = (row: AssignmentRow) =>
-    row.variants.filter((variant) => !variant.report);
-
-const startGroupedUpload = async (row: AssignmentRow) => {
-    const variants = mainUploadableVariants(row);
-
-    uploadCourseCode.value = row.course.code;
-    uploadProgramOptions.value = [
-        ...new Map(
-            variants
-                .map((variant) => variant.course.program)
-                .filter(
-                    (
-                        program,
-                    ): program is { id: number; name: string; code: string } =>
-                        Boolean(program),
-                )
-                .map((program) => [program.id, program]),
-        ).values(),
-    ];
-    form.course_ids = [row.course.id];
-    form.program_id = '';
-    form.program_ids = uploadProgramOptions.value.map((program) => program.id);
-    const lecturerIds = [
-        ...new Set(variants.map((variant) => variant.lecturer.id)),
-    ];
-    form.lecturer_id = lecturerIds.length === 1 ? String(lecturerIds[0]) : '';
-    form.title = `Lecture evaluation - ${row.course.code}`;
-    form.clearErrors();
-
-    await nextTick();
-    uploadOpen.value = true;
-};
-
-const assignmentReport = (course: CourseWithLecturers, lecturerId: number) =>
-    course.reports.find(
-        (report) =>
-            report.lecturerId === lecturerId &&
-            report.semesterId === Number(form.semester_id),
-    );
-
-const baseAssignmentRows = computed(() =>
-    filteredCourses.value.flatMap((course) =>
-        course.lecturers.map((lecturer) => ({
-            course,
-            lecturer,
-            lecturers: [lecturer],
-            report: assignmentReport(course, lecturer.id),
-            programs: course.program ? [course.program] : [],
-            levels: course.level ? [course.level] : [],
-            variants: [] as AssignmentRow[],
-            groupKey: course.code,
-            mixedStatus: false,
-        })),
-    ),
-);
-const groupedAssignmentRows = computed<AssignmentRow[]>(() => {
-    const groups = new Map<string, AssignmentRow[]>();
-
-    baseAssignmentRows.value.forEach((row) => {
-        groups.set(row.groupKey, [...(groups.get(row.groupKey) ?? []), row]);
-    });
-
-    return [...groups.values()].map((variants) => {
-        const row = variants[0];
-        const statuses = new Set(
-            variants.map((variant) => variant.report?.status ?? 'not_uploaded'),
-        );
-
-        return {
-            ...row,
-            lecturers: [
-                ...new Map(
-                    variants.map((variant) => [
-                        variant.lecturer.id,
-                        variant.lecturer,
-                    ]),
-                ).values(),
-            ],
-            programs: [
-                ...new Map(
-                    variants
-                        .flatMap((variant) => variant.programs)
-                        .map((program) => [program.id, program]),
-                ).values(),
-            ],
-            levels: [
-                ...new Set(variants.flatMap((variant) => variant.levels)),
-            ].sort((left, right) => Number(left) - Number(right)),
-            variants,
-            mixedStatus: statuses.size > 1,
-        };
-    });
-});
-const assignmentRows = computed(() => groupedAssignmentRows.value);
-const visibleOfferingRows = (row: AssignmentRow) =>
-    row.variants.length === 1 ||
-    splitAssignmentGroups.value.includes(row.groupKey)
-        ? row.variants
-        : [];
-
-const draftReportIdsForRow = (row: AssignmentRow) => [
-    ...new Set(
-        (row.variants.length ? row.variants : [row])
-            .map((variant) => variant.report)
-            .filter((report) => report?.status === 'draft')
-            .map((report) => report!.id),
-    ),
-];
-
-const visibleDraftReportIds = computed(() => [
-    ...new Set(assignmentRows.value.flatMap(draftReportIdsForRow)),
-]);
-
-const rowIsSelected = (row: AssignmentRow) => {
-    const ids = draftReportIdsForRow(row);
-
-    return (
-        ids.length > 0 &&
-        ids.every((reportId) => selectedReportIds.value.includes(reportId))
-    );
-};
-
-const toggleReportRow = (row: AssignmentRow) => {
-    const ids = draftReportIdsForRow(row);
-
-    selectedReportIds.value = rowIsSelected(row)
-        ? selectedReportIds.value.filter((reportId) => !ids.includes(reportId))
-        : [...new Set([...selectedReportIds.value, ...ids])];
-};
-
-const allVisibleDraftsSelected = computed(
-    () =>
-        visibleDraftReportIds.value.length > 0 &&
-        visibleDraftReportIds.value.every((reportId) =>
-            selectedReportIds.value.includes(reportId),
-        ),
-);
-
-const toggleAllVisibleDrafts = () => {
-    selectedReportIds.value = allVisibleDraftsSelected.value
-        ? selectedReportIds.value.filter(
-              (reportId) => !visibleDraftReportIds.value.includes(reportId),
-          )
-        : [
-              ...new Set([
-                  ...selectedReportIds.value,
-                  ...visibleDraftReportIds.value,
-              ]),
-          ];
 };
 
 const pushSelectedToSupervisor = () => {
@@ -464,27 +380,36 @@ const pushSelectedToSupervisor = () => {
     supervisorPickerOpen.value = true;
 };
 
-const pushToSupervisor = (reportId: number) => {
-    pendingPushReportIds.value = [reportId];
+const pushUnit = (unit: UploadUnit) => {
+    pendingPushReportIds.value = draftIds(unit);
     pushForm.supervisor_id = '';
     pushForm.clearErrors();
     supervisorPickerOpen.value = true;
 };
 
 const confirmDeleteDraft = () => {
-    if (!draftToDelete.value) {
-        return;
-    }
+    const ids = [...(draftToDelete.value ?? [])];
 
-    deleteDraftForm.delete(`/quality/reports/${draftToDelete.value}`, {
-        preserveScroll: true,
-        onSuccess: () => {
+    const deleteNext = () => {
+        const id = ids.shift();
+
+        if (id === undefined) {
             selectedReportIds.value = selectedReportIds.value.filter(
-                (reportId) => reportId !== draftToDelete.value,
+                (reportId) => !(draftToDelete.value ?? []).includes(reportId),
             );
             draftToDelete.value = null;
-        },
-    });
+
+            return;
+        }
+
+        deleteDraftForm.delete(`/quality/reports/${id}`, {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: deleteNext,
+        });
+    };
+
+    deleteNext();
 };
 
 const confirmPushToSupervisor = () => {
@@ -501,6 +426,7 @@ const confirmPushToSupervisor = () => {
     pushForm.report_ids = reportIds;
     pushForm.post(route, {
         preserveScroll: true,
+        preserveState: true,
         onSuccess: () => {
             selectedReportIds.value = selectedReportIds.value.filter(
                 (reportId) => !reportIds.includes(reportId),
@@ -520,22 +446,29 @@ const formatDateTime = (value: string | null) =>
           }).format(new Date(value))
         : null;
 
-const reportStatusLabel = (status?: string) =>
-    ({
-        draft: 'Draft',
-        submitted: 'With Supervisor',
-        under_review: 'With Director',
-        approved: 'Published',
-    })[status ?? ''] ?? 'Not uploaded';
+const activityText = (unit: UploadUnit) => {
+    const report = unit.reports[0];
+
+    if (!report) {
+        return null;
+    }
+
+    if (report.status === 'draft' && report.pushedAt) {
+        return 'Returned for changes';
+    }
+
+    return report.pushedAt
+        ? `Pushed ${formatDateTime(report.pushedAt)}`
+        : `Uploaded ${formatDateTime(report.uploadedAt)}`;
+};
 
 const closeUpload = () => {
     uploadOpen.value = false;
     uploadCourseCode.value = '';
-    uploadProgramOptions.value = [];
+    uploadScope.value = [];
     form.reset(
         'title',
-        'program_id',
-        'program_ids',
+        'cells',
         'lecturer_id',
         'course_ids',
         'report_file',
@@ -560,12 +493,13 @@ const submit = () => {
     form.post('/quality/reports', {
         forceFormData: true,
         preserveScroll: true,
+        preserveState: true,
         onSuccess: closeUpload,
     });
 };
 
 const applyFilters = () => {
-    form.course_ids = [];
+    router.reload({ only: ['courses'] });
 };
 </script>
 
@@ -574,20 +508,17 @@ const applyFilters = () => {
 
     <div class="w-full min-w-0 space-y-6">
         <div
-            class="rounded-2xl bg-gradient-to-r from-[#005f28] to-[#00853a] px-6 py-6 shadow-lg shadow-[#005f28]/15 [&_h2]:text-white [&_p]:text-white/75"
+            class="space-y-5 bg-[#f4f7fb] lg:sticky lg:top-20 lg:z-20 lg:-mt-5 lg:pt-5 lg:pb-4"
         >
-            <Heading
-                variant="small"
-                title="Assigned courses"
-                description="Courses with lecturer assignments for the selected academic year and semester"
+            <PageBanner
+                title="Upload Reports"
+                description="Upload one evaluation report for each course part and lecturer, then push drafts to the QA Supervisor"
             />
-        </div>
 
-        <div class="space-y-5">
             <div
-                class="flex flex-wrap items-end gap-4 rounded-2xl border border-[#7acb9c] bg-gradient-to-br from-[#effaf3] to-[#e3f6eb] p-5 shadow-sm ring-1 ring-[#007a2f]/10 lg:sticky lg:top-24 lg:z-10 [&_input]:border-[#9fd8b8] [&_input]:bg-white [&_select]:border-[#9fd8b8] [&_select]:bg-white [&_select]:text-[#063f22]"
+                class="flex flex-wrap items-end gap-4 rounded-2xl border border-[#7acb9c] bg-gradient-to-br from-[#effaf3] to-[#e3f6eb] p-5 shadow-sm ring-1 ring-[#007a2f]/10 [&_input]:border-[#9fd8b8] [&_input]:bg-white [&_select]:w-full [&_select]:border-[#9fd8b8] [&_select]:bg-white [&_select]:text-[#063f22]"
             >
-                <div class="grid min-w-[180px] flex-1 gap-1">
+                <div class="grid min-w-[180px] flex-1 grid-cols-1 gap-1">
                     <label for="academic-year" class="text-sm font-medium">
                         Academic year
                     </label>
@@ -606,7 +537,7 @@ const applyFilters = () => {
                         </option>
                     </select>
                 </div>
-                <div class="grid min-w-[180px] flex-1 gap-1">
+                <div class="grid min-w-[180px] flex-1 grid-cols-1 gap-1">
                     <label for="semester" class="text-sm font-medium">
                         Semester
                     </label>
@@ -625,18 +556,7 @@ const applyFilters = () => {
                         </option>
                     </select>
                 </div>
-                <div class="grid min-w-[160px] flex-1 gap-1">
-                    <label for="course-code" class="text-sm font-medium">
-                        Course code
-                    </label>
-                    <Input
-                        id="course-code"
-                        v-model="courseCodeSearch"
-                        class="h-10 bg-white"
-                        placeholder="Search course"
-                    />
-                </div>
-                <div class="grid min-w-[180px] flex-1 gap-1">
+                <div class="grid min-w-[180px] flex-1 grid-cols-1 gap-1">
                     <label for="school" class="text-sm font-medium">
                         School
                     </label>
@@ -659,7 +579,7 @@ const applyFilters = () => {
                         </option>
                     </select>
                 </div>
-                <div class="grid min-w-[180px] flex-1 gap-1">
+                <div class="grid min-w-[180px] flex-1 grid-cols-1 gap-1">
                     <label for="department" class="text-sm font-medium">
                         Department
                     </label>
@@ -679,7 +599,7 @@ const applyFilters = () => {
                         </option>
                     </select>
                 </div>
-                <div class="grid min-w-[180px] flex-1 gap-1">
+                <div class="grid min-w-[180px] flex-1 grid-cols-1 gap-1">
                     <label for="program" class="text-sm font-medium">
                         Program
                     </label>
@@ -698,7 +618,7 @@ const applyFilters = () => {
                         </option>
                     </select>
                 </div>
-                <div class="grid min-w-[150px] flex-1 gap-1">
+                <div class="grid min-w-[150px] flex-1 grid-cols-1 gap-1">
                     <label for="level" class="text-sm font-medium">Level</label>
                     <select
                         id="level"
@@ -715,7 +635,7 @@ const applyFilters = () => {
                         </option>
                     </select>
                 </div>
-                <div class="grid min-w-[150px] flex-1 gap-1">
+                <div class="grid min-w-[150px] flex-1 grid-cols-1 gap-1">
                     <label for="course-type" class="text-sm font-medium">
                         Course type
                     </label>
@@ -729,7 +649,7 @@ const applyFilters = () => {
                         <option value="module">Module</option>
                     </select>
                 </div>
-                <div class="grid min-w-[180px] flex-1 gap-1">
+                <div class="grid min-w-[180px] flex-1 grid-cols-1 gap-1">
                     <label for="lecturer" class="text-sm font-medium">
                         Lecturer
                     </label>
@@ -759,26 +679,34 @@ const applyFilters = () => {
             </div>
 
             <div
-                class="flex flex-col gap-3 rounded-2xl border border-[#8fd2ab] bg-[#effaf3] p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                class="flex flex-col gap-3 rounded-2xl border border-[#8fd2ab] bg-[#effaf3] p-4 shadow-sm xl:flex-row xl:items-center xl:justify-between"
             >
-                <label
-                    class="flex cursor-pointer items-center gap-3 text-sm font-semibold text-[#064426]"
+                <div
+                    class="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-5"
                 >
-                    <input
-                        type="checkbox"
-                        class="h-5 w-5 rounded border-[#69bd8d] text-[#007a2f] accent-[#007a2f]"
-                        :checked="allVisibleDraftsSelected"
-                        :disabled="visibleDraftReportIds.length === 0"
-                        @change="toggleAllVisibleDrafts"
+                    <label
+                        class="flex shrink-0 cursor-pointer items-center gap-3 text-sm font-semibold text-[#064426]"
+                    >
+                        <input
+                            type="checkbox"
+                            class="h-5 w-5 rounded border-[#69bd8d] text-[#007a2f] accent-[#007a2f]"
+                            :checked="allVisibleDraftsSelected"
+                            :disabled="visibleDraftReportIds.length === 0"
+                            @change="toggleAllVisibleDrafts"
+                        />
+                        Select all drafts
+                        <span class="font-normal text-[#397253]">
+                            ({{ selectedReportIds.length }} selected)
+                        </span>
+                    </label>
+                    <StatusSummary
+                        v-model="statusFilter"
+                        :counts="statusCounts"
                     />
-                    Select all uploaded drafts
-                    <span class="font-normal text-[#397253]">
-                        ({{ selectedReportIds.length }} selected)
-                    </span>
-                </label>
+                </div>
                 <Button
                     type="button"
-                    class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                    class="shrink-0 bg-[#007a2f] text-white hover:bg-[#006d2b]"
                     :disabled="selectedReportIds.length === 0"
                     @click="pushSelectedToSupervisor"
                 >
@@ -786,341 +714,266 @@ const applyFilters = () => {
                     Push selected to Supervisor
                 </Button>
             </div>
+        </div>
 
-            <div class="space-y-4">
-                <article
-                    v-for="(row, rowIndex) in assignmentRows"
-                    :key="`${row.groupKey}-${row.course.offeringId}`"
-                    class="overflow-hidden rounded-xl border border-[#b8ced8] bg-white shadow-sm"
+        <div class="space-y-5">
+            <CourseSearch
+                v-if="coursesForSemester.length"
+                v-model="courseCodeSearch"
+                :shown="displayCourses.length"
+                :total="coursesForSemester.length"
+            />
+
+            <CourseList
+                v-if="displayCourses.length"
+                :headings="[
+                    '',
+                    'Course',
+                    'Programs and sections',
+                    'Lecturer',
+                    'Status',
+                    'Action',
+                ]"
+                columns="24px minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1.5fr) minmax(150px,1fr) minmax(170px,auto)"
+            >
+                <CourseRow
+                    v-for="course in displayCourses"
+                    :key="course.key"
+                    :status="courseStatus(course).status"
+                    :mixed="courseStatus(course).mixed"
                 >
-                    <div
-                        class="grid gap-4 border-b border-[#b8ced8] bg-[#f8fbfc] px-4 py-4 md:grid-cols-[auto_1.45fr_0.7fr_0.8fr_1fr_auto] md:items-center"
-                    >
-                        <div
-                            class="flex h-8 w-8 items-center justify-center rounded-md bg-[#d9edf5] text-sm font-bold text-[#234d5d]"
-                        >
-                            {{ rowIndex + 1 }}
-                        </div>
-                        <div class="flex min-w-0 items-center gap-3">
-                            <div
-                                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#087036] text-white"
-                            >
-                                <FileText class="h-5 w-5" />
-                            </div>
-                            <div class="min-w-0">
-                                <div class="text-sm font-bold text-[#075b2e]">
-                                    {{ row.course.code }}
-                                </div>
-                                <h3 class="truncate text-sm text-[#243d47]">
-                                    {{ row.course.title }}
-                                </h3>
-                            </div>
-                        </div>
-                        <div class="text-sm">
-                            <div
-                                class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
-                            >
-                                Level
-                            </div>
-                            {{
-                                row.levels.length
-                                    ? row.levels.join(', ')
-                                    : 'Not set'
-                            }}
-                        </div>
-                        <div class="text-sm">
-                            <div
-                                class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
-                            >
-                                Offerings
-                            </div>
-                            {{ row.programs.length }}
-                        </div>
-                        <div class="min-w-0">
-                            <div
-                                class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
-                            >
-                                Lecturer
-                            </div>
-                            <div class="truncate text-sm font-medium">
-                                {{
-                                    row.lecturers.length === 1
-                                        ? row.lecturers[0].name
-                                        : `${row.lecturers.length} lecturers`
-                                }}
-                            </div>
-                        </div>
-                        <div
-                            class="flex flex-wrap items-center gap-2 md:justify-end"
-                        >
-                            <Badge
-                                variant="secondary"
-                                class="bg-[#d9edf5] text-[#234d5d]"
-                            >
-                                {{
-                                    row.mixedStatus
-                                        ? 'Mixed status'
-                                        : reportStatusLabel(row.report?.status)
-                                }}
-                            </Badge>
-                        </div>
-                    </div>
-
-                    <div class="px-4 py-4">
-                        <label
-                            v-if="draftReportIdsForRow(row).length"
-                            class="mb-3 flex w-fit cursor-pointer items-center gap-2 text-xs font-semibold text-[#087036]"
-                        >
+                    <template v-if="!showUnitRows(course)">
+                        <div class="hidden md:block">
                             <input
+                                v-if="
+                                    unitsFor(course)[0] &&
+                                    draftIds(unitsFor(course)[0]).length
+                                "
                                 type="checkbox"
-                                class="h-5 w-5 rounded border-[#69bd8d] accent-[#007a2f]"
-                                :checked="rowIsSelected(row)"
-                                @change="toggleReportRow(row)"
+                                class="h-4 w-4 accent-[#007a2f]"
+                                :checked="unitSelected(unitsFor(course)[0])"
+                                :aria-label="`Select ${course.code} draft`"
+                                @change="toggleUnit(unitsFor(course)[0])"
                             />
-                            Select draft
-                        </label>
-
-                        <div
-                            class="max-h-96 overflow-scroll overscroll-contain rounded-md border border-[#9fb7c1]"
-                        >
+                        </div>
+                    </template>
+                    <div v-else class="hidden md:block" />
+                    <CourseTitleCell
+                        :code="course.code"
+                        :title="course.title"
+                        :course-type="course.courseType"
+                        :subtitle="course.department?.name"
+                    />
+                    <div class="min-w-0 space-y-2">
+                        <CourseScopeCell
+                            :programs="course.programs"
+                            :levels="course.levels"
+                            :sections="course.sections"
+                            :mode="course.splitMode"
+                            :part-count="course.parts.length"
+                        />
+                        <SplitMenu
+                            :course-id="course.id"
+                            :course-code="course.code"
+                            :semester-id="course.semesterId"
+                            :mode="course.splitMode"
+                            :cells="course.parts.flatMap((part) => part.cells)"
+                        />
+                    </div>
+                    <template
+                        v-if="!showUnitRows(course) && unitsFor(course)[0]"
+                    >
+                        <LecturerCell
+                            :names="[unitsFor(course)[0].lecturer.name]"
+                            :detail="unitsFor(course)[0].lecturer.email"
+                        />
+                        <div class="space-y-1">
+                            <StatusPill
+                                :status="unitsFor(course)[0].status"
+                                :mixed="unitsFor(course)[0].mixed"
+                            />
                             <div
-                                class="sticky top-0 z-10 grid min-w-[1000px] grid-cols-[minmax(160px,1.6fr)_minmax(90px,0.65fr)_minmax(64px,0.5fr)_minmax(170px,1.2fr)_minmax(120px,0.8fr)_minmax(190px,1.25fr)_minmax(150px,auto)] gap-0 bg-[#9fb7c1] text-xs font-semibold text-[#294c59]"
+                                v-if="activityText(unitsFor(course)[0])"
+                                class="text-xs text-[#66808a]"
                             >
-                                <div class="bg-[#d9edf5] px-3 py-2">
-                                    Program
-                                </div>
-                                <div class="bg-[#d9edf5] px-3 py-2">Code</div>
-                                <div class="bg-[#d9edf5] px-3 py-2">Level</div>
-                                <div class="bg-[#d9edf5] px-3 py-2">
-                                    Lecturer
-                                </div>
-                                <div class="bg-[#d9edf5] px-3 py-2">Status</div>
-                                <div class="bg-[#d9edf5] px-3 py-2">
-                                    Activity
-                                </div>
-                                <div class="bg-[#d9edf5] px-3 py-2">Action</div>
-                            </div>
-                            <div
-                                class="min-w-[1000px] divide-y divide-[#cbdbe1] bg-white"
-                            >
-                                <div
-                                    v-if="
-                                        row.variants.length > 1 &&
-                                        !splitAssignmentGroups.includes(
-                                            row.groupKey,
-                                        )
-                                    "
-                                    class="flex items-center justify-between gap-4 bg-[#fbfdfe] px-4 py-5"
-                                >
-                                    <div>
-                                        <div class="font-medium text-[#243d47]">
-                                            {{ row.variants.length }} course
-                                            offerings grouped
-                                        </div>
-                                        <div
-                                            class="mt-1 text-xs text-muted-foreground"
-                                        >
-                                            Split this course to view program
-                                            codes, levels, and individual
-                                            actions.
-                                        </div>
-                                    </div>
-                                    <Split
-                                        class="h-5 w-5 shrink-0 text-[#087036]"
-                                    />
-                                </div>
-                                <div
-                                    v-for="variant in visibleOfferingRows(row)"
-                                    :key="variant.course.offeringId"
-                                    class="grid grid-cols-[minmax(160px,1.6fr)_minmax(90px,0.65fr)_minmax(64px,0.5fr)_minmax(170px,1.2fr)_minmax(120px,0.8fr)_minmax(190px,1.25fr)_minmax(150px,auto)] items-center gap-0 py-3 text-sm"
-                                >
-                                    <div
-                                        class="px-3 font-medium text-[#243d47]"
-                                    >
-                                        {{
-                                            variant.course.program?.name ??
-                                            'Program not set'
-                                        }}
-                                    </div>
-                                    <div class="px-3 text-muted-foreground">
-                                        {{
-                                            variant.course.program?.code ?? '—'
-                                        }}
-                                    </div>
-                                    <div class="px-3">
-                                        {{ variant.course.level ?? '—' }}
-                                    </div>
-                                    <div class="min-w-0 px-3 leading-tight">
-                                        <div class="font-medium break-words">
-                                            {{ variant.lecturer.name }}
-                                        </div>
-                                        <div
-                                            class="mt-1 text-xs break-all text-muted-foreground"
-                                        >
-                                            {{ variant.lecturer.email }}
-                                        </div>
-                                    </div>
-                                    <Badge
-                                        variant="secondary"
-                                        class="mx-3 w-fit bg-[#e2f2e8] text-[#075b2e]"
-                                    >
-                                        {{
-                                            reportStatusLabel(
-                                                variant.report?.status,
-                                            )
-                                        }}
-                                    </Badge>
-                                    <div
-                                        v-if="variant.report"
-                                        class="px-3 text-xs text-muted-foreground"
-                                    >
-                                        <div>
-                                            Uploaded
-                                            {{
-                                                formatDateTime(
-                                                    variant.report.uploadedAt,
-                                                )
-                                            }}
-                                        </div>
-                                        <div v-if="variant.report.pushedAt">
-                                            Pushed
-                                            {{
-                                                formatDateTime(
-                                                    variant.report.pushedAt,
-                                                )
-                                            }}
-                                        </div>
-                                    </div>
-                                    <span
-                                        v-else
-                                        class="px-3 text-xs text-muted-foreground"
-                                    >
-                                        Not started
-                                    </span>
-                                    <div class="flex justify-end gap-2 px-3">
-                                        <template
-                                            v-if="
-                                                variant.report?.status ===
-                                                'draft'
-                                            "
-                                        >
-                                            <Button
-                                                type="button"
-                                                size="icon"
-                                                variant="outline"
-                                                class="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-                                                title="Delete draft"
-                                                @click="
-                                                    draftToDelete =
-                                                        variant.report.id
-                                                "
-                                            >
-                                                <Trash2 class="h-4 w-4" />
-                                                <span class="sr-only"
-                                                    >Delete draft</span
-                                                >
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                size="sm"
-                                                class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                                                @click="
-                                                    pushToSupervisor(
-                                                        variant.report.id,
-                                                    )
-                                                "
-                                            >
-                                                <Send class="h-4 w-4" />
-                                                Push
-                                            </Button>
-                                        </template>
-                                        <Button
-                                            v-else-if="!variant.report"
-                                            type="button"
-                                            size="sm"
-                                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                                            @click="
-                                                startUpload(
-                                                    variant.course,
-                                                    variant.lecturer.id,
-                                                )
-                                            "
-                                        >
-                                            <Upload class="h-4 w-4" />
-                                            Upload
-                                        </Button>
-                                    </div>
-                                </div>
+                                {{ activityText(unitsFor(course)[0]) }}
                             </div>
                         </div>
-                    </div>
-
+                    </template>
+                    <template v-else>
+                        <LecturerCell
+                            :names="[
+                                ...new Set(
+                                    unitsFor(course).map(
+                                        (unit) => unit.lecturer.name,
+                                    ),
+                                ),
+                            ]"
+                        />
+                        <StatusPill
+                            :status="courseStatus(course).status"
+                            :mixed="courseStatus(course).mixed"
+                        />
+                    </template>
                     <div
-                        class="flex flex-col gap-3 border-t border-[#cbdbe1] bg-[#f8fbfc] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                        v-if="!showUnitRows(course) && unitsFor(course)[0]"
+                        class="flex items-center justify-start gap-2 md:justify-end"
                     >
-                        <p class="text-xs text-muted-foreground">
-                            {{
-                                row.variants.length > 1
-                                    ? `${row.variants.length} course offerings are grouped across ${row.lecturers.length} lecturer${row.lecturers.length === 1 ? '' : 's'}.`
-                                    : 'One course offering is available.'
-                            }}
-                        </p>
-                        <div class="flex flex-wrap gap-2 sm:justify-end">
+                        <template
+                            v-for="unit in [unitsFor(course)[0]]"
+                            :key="unit.key"
+                        >
                             <Button
-                                v-if="
-                                    mainUploadableVariants(row).length &&
-                                    !splitAssignmentGroups.includes(
-                                        row.groupKey,
-                                    )
-                                "
+                                v-if="draftIds(unit).length"
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                class="size-8 text-red-700 hover:bg-red-50 hover:text-red-800"
+                                title="Delete draft"
+                                @click="draftToDelete = draftIds(unit)"
+                            >
+                                <Trash2 class="h-4 w-4" />
+                                <span class="sr-only">Delete draft</span>
+                            </Button>
+                            <Button
+                                v-if="draftIds(unit).length"
                                 type="button"
                                 size="sm"
                                 class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                                @click="startGroupedUpload(row)"
+                                @click="pushUnit(unit)"
                             >
-                                <Upload class="h-4 w-4" />
-                                {{
-                                    mainUploadableVariants(row).length > 1
-                                        ? 'Upload once for all programs'
-                                        : 'Upload report'
-                                }}
+                                <Send class="h-4 w-4" /> Push
                             </Button>
                             <Button
-                                v-if="row.variants.length > 1"
+                                v-if="unit.missingCells"
                                 type="button"
                                 size="sm"
                                 variant="outline"
                                 class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
-                                @click="toggleAssignmentSplit(row.groupKey)"
+                                @click="startUpload(unit)"
                             >
-                                <Combine
-                                    v-if="
-                                        splitAssignmentGroups.includes(
-                                            row.groupKey,
-                                        )
-                                    "
-                                    class="h-4 w-4"
-                                />
-                                <Split v-else class="h-4 w-4" />
+                                <Upload class="h-4 w-4" />
                                 {{
-                                    splitAssignmentGroups.includes(row.groupKey)
-                                        ? 'Combine offerings'
-                                        : 'Split course offerings'
+                                    unit.reports.length
+                                        ? 'Upload missing'
+                                        : 'Upload'
                                 }}
                             </Button>
-                        </div>
+                            <span
+                                v-if="
+                                    !draftIds(unit).length && !unit.missingCells
+                                "
+                                class="text-xs text-[#66808a]"
+                                >No action needed</span
+                            >
+                        </template>
                     </div>
-                </article>
+                    <div v-else class="text-xs text-[#66808a] md:text-right">
+                        {{ unitsFor(course).length }} report
+                        {{ unitsFor(course).length === 1 ? 'slot' : 'slots' }}
+                    </div>
 
-                <div
-                    v-if="assignmentRows.length === 0"
-                    class="rounded-2xl border border-dashed border-[#9fd8b8] bg-white px-4 py-12 text-center text-sm text-muted-foreground"
-                >
-                    No assigned courses match these filters.
-                </div>
+                    <template v-if="showUnitRows(course)" #children>
+                        <CourseRow
+                            v-for="unit in unitsFor(course)"
+                            :key="unit.key"
+                            :status="unit.status"
+                            :mixed="unit.mixed"
+                            nested
+                        >
+                            <div class="hidden md:block">
+                                <input
+                                    v-if="draftIds(unit).length"
+                                    type="checkbox"
+                                    class="h-4 w-4 accent-[#007a2f]"
+                                    :checked="unitSelected(unit)"
+                                    :aria-label="`Select ${course.code} ${unit.part.label} draft`"
+                                    @change="toggleUnit(unit)"
+                                />
+                            </div>
+                            <PartLabelCell
+                                :label="unit.part.label"
+                                :cells="unit.part.cells"
+                            />
+                            <div class="hidden md:block" />
+                            <LecturerCell
+                                :names="[unit.lecturer.name]"
+                                :detail="unit.lecturer.email"
+                            />
+                            <div class="space-y-1">
+                                <StatusPill
+                                    :status="unit.status"
+                                    :mixed="unit.mixed"
+                                />
+                                <div
+                                    v-if="activityText(unit)"
+                                    class="text-xs text-[#66808a]"
+                                >
+                                    {{ activityText(unit) }}
+                                </div>
+                            </div>
+                            <div
+                                class="flex items-center justify-start gap-2 md:justify-end"
+                            >
+                                <Button
+                                    v-if="draftIds(unit).length"
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    class="size-8 text-red-700 hover:bg-red-50 hover:text-red-800"
+                                    title="Delete draft"
+                                    @click="draftToDelete = draftIds(unit)"
+                                >
+                                    <Trash2 class="h-4 w-4" />
+                                    <span class="sr-only">Delete draft</span>
+                                </Button>
+                                <Button
+                                    v-if="draftIds(unit).length"
+                                    type="button"
+                                    size="sm"
+                                    class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                                    @click="pushUnit(unit)"
+                                >
+                                    <Send class="h-4 w-4" /> Push
+                                </Button>
+                                <Button
+                                    v-if="unit.missingCells"
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
+                                    @click="startUpload(unit)"
+                                >
+                                    <Upload class="h-4 w-4" />
+                                    {{
+                                        unit.reports.length
+                                            ? 'Upload missing'
+                                            : 'Upload'
+                                    }}
+                                </Button>
+                                <span
+                                    v-if="
+                                        !draftIds(unit).length &&
+                                        !unit.missingCells
+                                    "
+                                    class="text-xs text-[#66808a]"
+                                    >No action needed</span
+                                >
+                            </div>
+                        </CourseRow>
+                    </template>
+                </CourseRow>
+            </CourseList>
+
+            <div
+                v-else
+                class="rounded-2xl border border-dashed border-[#9fd8b8] bg-white px-4 py-12 text-center text-sm text-muted-foreground"
+            >
+                No assigned courses match these filters.
             </div>
             <InputError :message="form.errors.course_ids" />
             <InputError :message="form.errors.lecturer_id" />
+            <InputError :message="form.errors.cells" />
         </div>
 
         <Dialog
@@ -1270,20 +1123,20 @@ const applyFilters = () => {
                     </div>
 
                     <div
-                        v-if="form.program_ids.length > 1"
+                        v-if="uploadScope.length > 1"
                         class="rounded-lg border border-[#9fd8b8] bg-white p-3"
                     >
                         <div class="text-sm font-semibold text-[#075b2e]">
-                            Applies to all program offerings
+                            One report for this part, covering
                         </div>
                         <div class="mt-2 flex flex-wrap gap-2">
                             <Badge
-                                v-for="program in uploadProgramOptions"
-                                :key="program.id"
+                                v-for="scope in uploadScope"
+                                :key="scope"
                                 variant="outline"
                                 class="border-[#9fd8b8] text-[#075b2e]"
                             >
-                                {{ program.name }} ({{ program.code }})
+                                {{ scope }}
                             </Badge>
                         </div>
                     </div>

@@ -20,7 +20,7 @@ withDefaults(defineProps<Props>(), {
         <AppSidebar />
         <AppContent
             variant="sidebar"
-            class="min-w-0 overflow-x-hidden bg-[#f4f7fb]"
+            class="min-w-0 overflow-x-clip bg-[#f4f7fb]"
         >
             <AppSidebarHeader :breadcrumbs="breadcrumbs" />
             <main

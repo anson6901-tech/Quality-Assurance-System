@@ -1,20 +1,18 @@
 <script setup lang="ts">
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
-import {
-    Check,
-    ChevronDown,
-    Combine,
-    Download,
-    Eye,
-    Lock,
-    Printer,
-    RotateCcw,
-    Split,
-    Trash2,
-} from 'lucide-vue-next';
+import { Head, router, useForm } from '@inertiajs/vue3';
+import { Check, ChevronDown } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
-import Heading from '@/components/Heading.vue';
-import { Badge } from '@/components/ui/badge';
+import PageBanner from '@/components/PageBanner.vue';
+import CourseList from '@/components/quality/CourseList.vue';
+import CourseRow from '@/components/quality/CourseRow.vue';
+import CourseScopeCell from '@/components/quality/CourseScopeCell.vue';
+import CourseSearch from '@/components/quality/CourseSearch.vue';
+import CourseTitleCell from '@/components/quality/CourseTitleCell.vue';
+import LecturerCell from '@/components/quality/LecturerCell.vue';
+import ReportVariantActions from '@/components/quality/ReportVariantActions.vue';
+import SplitMenu from '@/components/quality/SplitMenu.vue';
+import StatusPill from '@/components/quality/StatusPill.vue';
+import StatusSummary from '@/components/quality/StatusSummary.vue';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -32,7 +30,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useCourseOfferingSplits } from '@/composables/useCourseOfferingSplits';
+import { useSearchParam } from '@/composables/useSearchParam';
+import { matchesSearch } from '@/lib/coursePartitions';
+import { toReportStatus } from '@/lib/reportStatus';
+import type { ReportStatusKey } from '@/lib/reportStatus';
 import type { QualityReport } from '@/types';
 
 type FilterOption = {
@@ -129,7 +130,7 @@ const printReport = (report: QualityReport) => {
 
 type WorkflowAction = 'forward' | 'return' | 'publish' | 'unapprove' | 'delete';
 
-const workflowTarget = ref<QualityReport | null>(null);
+const workflowTargets = ref<QualityReport[]>([]);
 const workflowAction = ref<WorkflowAction | null>(null);
 const workflowForm = useForm({ note: '' });
 const selectedReportIds = ref<number[]>([]);
@@ -183,105 +184,206 @@ const workflowCopy = computed(() => {
     return workflowAction.value ? copy[workflowAction.value] : copy.return;
 });
 
-const openWorkflow = (report: QualityReport, action: WorkflowAction) => {
-    workflowTarget.value = report;
+const actionableStatuses: Record<WorkflowAction, string[]> = {
+    forward: ['submitted'],
+    publish: ['under_review'],
+    return: ['submitted', 'under_review'],
+    unapprove: ['approved'],
+    delete: ['submitted', 'under_review'],
+};
+
+const openWorkflow = (reports: QualityReport[], action: WorkflowAction) => {
+    workflowTargets.value = reports.filter((report) =>
+        actionableStatuses[action].includes(report.status),
+    );
     workflowAction.value = action;
     workflowForm.reset();
     workflowForm.clearErrors();
 };
 
 const closeWorkflow = () => {
-    workflowTarget.value = null;
+    workflowTargets.value = [];
     workflowAction.value = null;
     workflowForm.reset();
 };
 
 const submitWorkflow = () => {
-    if (!workflowTarget.value || !workflowAction.value) {
-        return;
-    }
+    const action = workflowAction.value;
+    const queue = [...workflowTargets.value];
 
-    const reportId = workflowTarget.value.id;
-    const options = {
-        preserveScroll: true,
-        onSuccess: closeWorkflow,
-    };
-
-    if (workflowAction.value === 'delete') {
-        workflowForm.delete(`/quality/reports/${reportId}`, options);
-
+    if (!action || queue.length === 0) {
         return;
     }
 
     const endpoint =
-        workflowAction.value === 'forward'
+        action === 'forward'
             ? 'forward'
-            : workflowAction.value === 'unapprove'
+            : action === 'unapprove'
               ? 'unapprove'
-              : workflowAction.value === 'publish'
+              : action === 'publish'
                 ? 'approve'
                 : 'return';
 
-    workflowForm.post(`/quality/reports/${reportId}/${endpoint}`, options);
+    const next = () => {
+        const report = queue.shift();
+
+        if (!report) {
+            closeWorkflow();
+
+            return;
+        }
+
+        const options = {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: next,
+        };
+
+        if (action === 'delete') {
+            workflowForm.delete(`/quality/reports/${report.id}`, options);
+        } else {
+            workflowForm.post(
+                `/quality/reports/${report.id}/${endpoint}`,
+                options,
+            );
+        }
+    };
+
+    next();
 };
 
 const lecturerSearch = ref('');
 
 const activeFilters = computed<ReportFilters>(() => props.filters ?? {});
-const { isCourseSplitForPeriod, toggleCourseSplitForPeriod } =
-    useCourseOfferingSplits(
-        () => activeFilters.value.academic_year_id,
-        () => activeFilters.value.semester_id,
-    );
-
-type ReportRow = QualityReport & {
-    groupKey: string;
-    variants: QualityReport[];
+/** One review slot: a course part taught by one lecturer (may cover several program sections). */
+type ReportUnit = {
+    key: string;
+    label: string;
+    reports: QualityReport[];
+    lecturer: QualityReport['lecturer'];
+    status: ReportStatusKey;
+    mixed: boolean;
 };
 
-const reportGroupKey = (report: QualityReport) =>
-    `${report.courses[0]?.code ?? report.id}:${report.academicYear?.id ?? 'no-year'}:${report.semester?.id ?? 'no-semester'}`;
+type CourseGroup = {
+    key: string;
+    code: string;
+    title: string;
+    first: QualityReport;
+    reports: QualityReport[];
+    units: ReportUnit[];
+    split: boolean;
+    programs: Array<{ id: number; name: string; code: string }>;
+    sections: Array<{ id: number; name: string }>;
+    levels: string[];
+};
 
-const reportRows = computed<ReportRow[]>(() => {
-    if (props.reviewStage === 'officer') {
-        return props.reports.map((report) => ({
-            ...report,
-            groupKey: String(report.id),
-            variants: [report],
-        }));
-    }
+const statusFilter = ref<ReportStatusKey | ''>('');
+const reportLevel = (report: QualityReport) =>
+    report.courses.map((course) => course.level).find(Boolean) ?? null;
 
+const unitFor = (key: string, reports: QualityReport[]): ReportUnit => {
+    const statuses = new Set(
+        reports.map((report) => toReportStatus(report.status)),
+    );
+
+    return {
+        key,
+        label: reports[0].part?.label ?? 'Whole course',
+        reports,
+        lecturer: reports[0].lecturer,
+        status: toReportStatus(reports[0].status),
+        mixed: statuses.size > 1,
+    };
+};
+
+const courseGroups = computed<CourseGroup[]>(() => {
     const groups = new Map<string, QualityReport[]>();
 
     props.reports.forEach((report) => {
-        const key = reportGroupKey(report);
+        const key = `${report.courses[0]?.id ?? `r${report.id}`}:${report.semester?.id ?? 'none'}`;
         groups.set(key, [...(groups.get(key) ?? []), report]);
     });
 
-    return [...groups.entries()].map(([groupKey, variants]) => ({
-        ...variants[0],
-        groupKey,
-        variants,
-        courses: variants.flatMap((report) => report.courses),
-    }));
+    return [...groups.entries()].map(([key, reports]) => {
+        const units = new Map<string, QualityReport[]>();
+
+        reports.forEach((report) => {
+            const unitKey = `${report.part?.key ?? 'all'}:${report.lecturer?.id ?? 0}`;
+            units.set(unitKey, [...(units.get(unitKey) ?? []), report]);
+        });
+
+        const unique = <T extends { id: number }>(
+            items: Array<T | null | undefined>,
+        ): T[] =>
+            items
+                .filter((item): item is T => Boolean(item))
+                .filter(
+                    (item, index, values) =>
+                        values.findIndex((value) => value.id === item.id) ===
+                        index,
+                );
+
+        return {
+            key,
+            code: reports[0].courses[0]?.code ?? 'No course',
+            title: reports[0].courses[0]?.title ?? reports[0].title,
+            first: reports[0],
+            reports,
+            units: [...units.entries()].map(([unitKey, unitReports]) =>
+                unitFor(unitKey, unitReports),
+            ),
+            split: (reports[0].part?.mode ?? 'merged') !== 'merged',
+            programs: unique(reports.map((report) => report.program)),
+            sections: unique(reports.map((report) => report.section)),
+            levels: [
+                ...new Set(
+                    reports
+                        .map(reportLevel)
+                        .filter((level): level is string => Boolean(level)),
+                ),
+            ],
+        };
+    });
 });
 
-const isReportGroupSplit = (row: ReportRow) =>
-    isCourseSplitForPeriod(
-        row.courses[0]?.code ?? String(row.id),
-        row.academicYear?.id,
-        row.semester?.id,
-    );
+const statusCounts = computed(() =>
+    courseGroups.value
+        .flatMap((group) => group.units)
+        .reduce<Partial<Record<ReportStatusKey, number>>>((counts, unit) => {
+            counts[unit.status] = (counts[unit.status] ?? 0) + 1;
 
-const toggleReportSplit = (row: ReportRow) =>
-    toggleCourseSplitForPeriod(
-        row.courses[0]?.code ?? String(row.id),
-        row.academicYear?.id,
-        row.semester?.id,
-    );
-
-const visibleReportVariants = (row: ReportRow) =>
-    row.variants.length === 1 || isReportGroupSplit(row) ? row.variants : [];
+            return counts;
+        }, {}),
+);
+const courseSearch = ref(useSearchParam('search'));
+const displayedGroups = computed(() =>
+    courseGroups.value.filter(
+        (group) =>
+            (!statusFilter.value ||
+                group.units.some(
+                    (unit) => unit.status === statusFilter.value,
+                )) &&
+            matchesSearch(courseSearch.value, [
+                group.code,
+                group.title,
+                ...group.programs.flatMap((program) => [
+                    program.code,
+                    program.name,
+                ]),
+                ...group.units.map((unit) => unit.lecturer?.name),
+            ]),
+    ),
+);
+const groupStatus = (group: CourseGroup) => ({
+    status: group.units[0]?.status ?? 'not_uploaded',
+    mixed:
+        new Set(group.units.map((unit) => unit.status)).size > 1 ||
+        group.units.some((unit) => unit.mixed),
+});
+const showUnitRows = (group: CourseGroup) =>
+    group.split || group.units.length > 1;
+const unitDate = (unit: ReportUnit) => unit.reports[0].createdAt;
 
 const forwardableReportIds = computed(() =>
     props.reports
@@ -300,10 +402,24 @@ const toggleAllForwardable = () => {
         ? []
         : [...forwardableReportIds.value];
 };
-const toggleForwardSelection = (reportId: number) => {
-    selectedReportIds.value = selectedReportIds.value.includes(reportId)
-        ? selectedReportIds.value.filter((id) => id !== reportId)
-        : [...selectedReportIds.value, reportId];
+const forwardableIds = (reports: QualityReport[]) =>
+    reports
+        .filter((report) => report.status === 'submitted')
+        .map((report) => report.id);
+const isSelected = (reports: QualityReport[]) => {
+    const ids = forwardableIds(reports);
+
+    return (
+        ids.length > 0 &&
+        ids.every((id) => selectedReportIds.value.includes(id))
+    );
+};
+const toggleSelection = (reports: QualityReport[]) => {
+    const ids = forwardableIds(reports);
+
+    selectedReportIds.value = isSelected(reports)
+        ? selectedReportIds.value.filter((id) => !ids.includes(id))
+        : [...new Set([...selectedReportIds.value, ...ids])];
 };
 const openBulkForward = (reportIds = selectedReportIds.value) => {
     if (reportIds.length === 0) {
@@ -318,6 +434,7 @@ const openBulkForward = (reportIds = selectedReportIds.value) => {
 const submitBulkForward = () => {
     bulkForwardForm.post('/quality/reports/forward-selected', {
         preserveScroll: true,
+        preserveState: true,
         onSuccess: () => {
             selectedReportIds.value = [];
             bulkForwardOpen.value = false;
@@ -325,10 +442,6 @@ const submitBulkForward = () => {
         },
     });
 };
-const forwardableIdsForRow = (row: ReportRow) =>
-    row.variants
-        .filter((variant) => variant.status === 'submitted')
-        .map((variant) => variant.id);
 
 const selectedLecturerLabel = computed(() => {
     const selectedLecturerId = activeFilters.value.lecturer_id
@@ -429,6 +542,7 @@ const clearFilters = () => {
         {},
         {
             preserveScroll: true,
+            preserveState: true,
             replace: true,
         },
     );
@@ -450,17 +564,11 @@ defineOptions({
     <Head :title="pageTitle" />
 
     <div class="flex flex-col space-y-6">
-        <div class="flex items-center justify-between gap-4">
-            <Heading
-                variant="small"
-                :title="pageTitle"
-                :description="pageDescription"
-            />
-        </div>
+        <PageBanner :title="pageTitle" :description="pageDescription" />
 
         <div
             v-if="filterOptions"
-            class="grid gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-5 shadow-sm ring-1 ring-[#007a2f]/10 md:grid-cols-5 lg:sticky lg:top-24 lg:z-10"
+            class="grid gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] p-5 shadow-sm ring-1 ring-[#007a2f]/10 md:grid-cols-5 lg:sticky lg:top-20 lg:z-20"
         >
             <DropdownMenu>
                 <DropdownMenuTrigger as-child>
@@ -662,27 +770,39 @@ defineOptions({
         </div>
 
         <div
-            v-if="reviewStage === 'supervisor' && forwardableReportIds.length"
-            class="flex flex-col gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            v-if="reports.length"
+            class="flex flex-col gap-3 rounded-xl border border-[#9fd8b8] bg-[#eefaf3] px-4 py-3 xl:flex-row xl:items-center xl:justify-between"
         >
-            <label
-                class="flex items-center gap-3 text-sm font-medium text-[#063f22]"
+            <div
+                class="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-5"
             >
-                <input
-                    type="checkbox"
-                    class="h-4 w-4 accent-[#007a2f]"
-                    :checked="allForwardableSelected"
-                    @change="toggleAllForwardable"
-                />
-                Select all submitted reports
-                <span class="font-normal text-muted-foreground">
-                    ({{ selectedReportIds.length }} selected)
-                </span>
-            </label>
+                <label
+                    v-if="
+                        reviewStage === 'supervisor' &&
+                        forwardableReportIds.length
+                    "
+                    class="flex shrink-0 items-center gap-3 text-sm font-medium text-[#063f22]"
+                >
+                    <input
+                        type="checkbox"
+                        class="h-4 w-4 accent-[#007a2f]"
+                        :checked="allForwardableSelected"
+                        @change="toggleAllForwardable"
+                    />
+                    Select all submitted
+                    <span class="font-normal text-muted-foreground">
+                        ({{ selectedReportIds.length }} selected)
+                    </span>
+                </label>
+                <StatusSummary v-model="statusFilter" :counts="statusCounts" />
+            </div>
             <Button
+                v-if="
+                    reviewStage === 'supervisor' && forwardableReportIds.length
+                "
                 type="button"
                 size="sm"
-                class="bg-[#007a2f] text-white hover:bg-[#006428]"
+                class="shrink-0 bg-[#007a2f] text-white hover:bg-[#006428]"
                 :disabled="selectedReportIds.length === 0"
                 @click="openBulkForward()"
             >
@@ -691,597 +811,197 @@ defineOptions({
             </Button>
         </div>
 
-        <div class="space-y-4">
-            <article
-                v-for="(report, reportIndex) in reportRows"
-                :key="report.groupKey"
-                class="overflow-hidden rounded-xl border border-[#b8ced8] bg-white shadow-sm"
+        <CourseSearch
+            v-if="courseGroups.length"
+            v-model="courseSearch"
+            :shown="displayedGroups.length"
+            :total="courseGroups.length"
+        />
+
+        <CourseList
+            v-if="displayedGroups.length"
+            :headings="[
+                '',
+                'Course',
+                'Programs and sections',
+                'Lecturer',
+                'Status',
+                'Actions',
+            ]"
+            columns="24px minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1.5fr) minmax(150px,1fr) minmax(170px,auto)"
+        >
+            <CourseRow
+                v-for="group in displayedGroups"
+                :key="group.key"
+                :status="groupStatus(group).status"
+                :mixed="groupStatus(group).mixed"
             >
-                <div
-                    class="grid gap-4 border-b border-[#b8ced8] bg-[#f8fbfc] px-4 py-4 md:grid-cols-[auto_1.5fr_0.75fr_0.75fr_1fr_auto] md:items-center"
-                >
-                    <div
-                        class="flex h-8 w-8 items-center justify-center rounded-md bg-[#d9edf5] text-sm font-bold text-[#234d5d]"
-                    >
-                        {{ reportIndex + 1 }}
-                    </div>
-                    <div class="min-w-0">
-                        <div class="text-sm font-bold text-[#075b2e]">
-                            {{ report.courses[0]?.code ?? 'No course' }}
-                        </div>
-                        <div class="truncate text-sm text-[#243d47]">
-                            {{ report.courses[0]?.title ?? report.title }}
-                        </div>
-                    </div>
-                    <div class="text-sm">
-                        <div
-                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
-                        >
-                            Level
-                        </div>
-                        {{
-                            report.courses
-                                .map((course) => course.level)
-                                .find(Boolean) ?? '—'
-                        }}
-                    </div>
-                    <div class="text-sm">
-                        <div
-                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
-                        >
-                            Offerings
-                        </div>
-                        {{ report.variants.length }}
-                    </div>
-                    <div class="min-w-0">
-                        <div
-                            class="text-[10px] font-bold tracking-wide text-[#66808a] uppercase"
-                        >
-                            Lecturer
-                        </div>
-                        <div class="truncate text-sm font-medium">
-                            {{
-                                new Set(
-                                    report.variants.map(
-                                        (variant) => variant.lecturer?.id,
-                                    ),
-                                ).size > 1
-                                    ? `${new Set(report.variants.map((variant) => variant.lecturer?.id)).size} lecturers`
-                                    : (report.lecturer?.name ?? 'Not assigned')
-                            }}
-                        </div>
-                    </div>
-                    <Badge
-                        variant="secondary"
-                        class="w-fit bg-[#d9edf5] text-[#234d5d]"
-                    >
-                        {{
-                            new Set(
-                                report.variants.map(
-                                    (variant) => variant.status,
+                <div class="hidden md:block">
+                    <input
+                        v-if="
+                            reviewStage === 'supervisor' &&
+                            forwardableIds(group.reports).length
+                        "
+                        type="checkbox"
+                        class="h-4 w-4 accent-[#007a2f]"
+                        :checked="isSelected(group.reports)"
+                        :aria-label="`Select ${group.code}`"
+                        @change="toggleSelection(group.reports)"
+                    />
+                </div>
+                <CourseTitleCell
+                    :code="group.code"
+                    :title="group.title"
+                    :subtitle="`${group.first.academicYear?.name ?? 'No year'}${group.first.semester ? ` · ${group.first.semester.name}` : ''}`"
+                />
+                <div class="min-w-0 space-y-2">
+                    <CourseScopeCell
+                        :programs="group.programs"
+                        :levels="group.levels"
+                        :sections="group.sections"
+                        :mode="group.first.part?.mode ?? 'merged'"
+                        :part-count="group.units.length"
+                    />
+                    <SplitMenu
+                        v-if="group.first.courses[0]"
+                        :course-id="group.first.courses[0].id"
+                        :course-code="group.code"
+                        :semester-id="group.first.semester?.id"
+                        :mode="group.first.part?.mode ?? 'merged'"
+                    />
+                </div>
+                <LecturerCell
+                    :names="[
+                        ...new Set(
+                            group.units
+                                .map((unit) => unit.lecturer?.name)
+                                .filter((name): name is string =>
+                                    Boolean(name),
                                 ),
-                            ).size > 1
-                                ? 'Mixed status'
-                                : report.status
-                        }}
-                    </Badge>
-                </div>
-
-                <div class="px-4 py-4">
+                        ),
+                    ]"
+                    :detail="
+                        !showUnitRows(group)
+                            ? group.first.lecturer?.email
+                            : null
+                    "
+                />
+                <div class="space-y-1">
+                    <StatusPill
+                        :status="groupStatus(group).status"
+                        :mixed="groupStatus(group).mixed"
+                    />
                     <div
-                        class="overflow-hidden rounded-md border border-[#9fb7c1]"
+                        v-if="!showUnitRows(group)"
+                        class="text-xs text-[#66808a]"
                     >
-                        <div
-                            class="hidden grid-cols-[1.6fr_0.65fr_0.55fr_1.05fr_0.75fr_1fr_auto] gap-px bg-[#9fb7c1] text-xs font-semibold text-[#294c59] md:grid"
-                        >
-                            <div class="bg-[#d9edf5] px-3 py-2">Program</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Code</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Level</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Scope</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Status</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Activity</div>
-                            <div class="bg-[#d9edf5] px-3 py-2">Actions</div>
-                        </div>
-                        <div class="divide-y divide-[#cbdbe1] bg-white">
-                            <div
-                                v-if="
-                                    report.variants.length > 1 &&
-                                    !isReportGroupSplit(report)
-                                "
-                                class="flex items-center justify-between gap-4 bg-[#fbfdfe] px-4 py-5"
-                            >
-                                <div>
-                                    <div class="font-medium text-[#243d47]">
-                                        {{ report.variants.length }} program
-                                        reports grouped
-                                    </div>
-                                    <div
-                                        class="mt-1 text-xs text-muted-foreground"
-                                    >
-                                        Split this course to review each program
-                                        report and its workflow actions.
-                                    </div>
-                                </div>
-                                <Split class="h-5 w-5 text-[#087036]" />
-                            </div>
-                            <div
-                                v-for="variant in visibleReportVariants(report)"
-                                :key="variant.id"
-                                class="grid gap-3 px-3 py-3 text-sm md:grid-cols-[1.6fr_0.65fr_0.55fr_1.05fr_0.75fr_1fr_auto] md:items-center"
-                            >
-                                <div class="font-medium text-[#243d47]">
-                                    {{
-                                        variant.program?.name ??
-                                        'Program not set'
-                                    }}
-                                </div>
-                                <div class="text-muted-foreground">
-                                    {{ variant.program?.code ?? '—' }}
-                                </div>
-                                <div>
-                                    {{
-                                        variant.courses
-                                            .map((course) => course.level)
-                                            .find(Boolean) ?? '—'
-                                    }}
-                                </div>
-                                <div class="min-w-0 text-xs">
-                                    <div class="truncate">
-                                        {{ variant.department?.name ?? '—' }}
-                                    </div>
-                                    <div class="truncate text-muted-foreground">
-                                        {{
-                                            variant.academicYear?.name ??
-                                            'No year'
-                                        }}
-                                    </div>
-                                </div>
-                                <Badge variant="secondary" class="w-fit">
-                                    {{ variant.status }}
-                                </Badge>
-                                <div class="text-xs text-muted-foreground">
-                                    {{ variant.createdAt }}
-                                    <div>{{ variant.location }}</div>
-                                </div>
-                                <div class="flex flex-wrap justify-end gap-2">
-                                    <input
-                                        v-if="
-                                            reviewStage === 'supervisor' &&
-                                            variant.status === 'submitted'
-                                        "
-                                        type="checkbox"
-                                        class="h-4 w-4 self-center accent-[#007a2f]"
-                                        :aria-label="`Select ${variant.title}`"
-                                        :checked="
-                                            selectedReportIds.includes(
-                                                variant.id,
-                                            )
-                                        "
-                                        @change="
-                                            toggleForwardSelection(variant.id)
-                                        "
-                                    />
-                                    <Button
-                                        v-if="
-                                            approvalQueue &&
-                                            canReviewReports &&
-                                            variant.status === 'submitted'
-                                        "
-                                        size="sm"
-                                        class="bg-[#007a2f] hover:bg-[#006428]"
-                                        @click="
-                                            openWorkflow(variant, 'forward')
-                                        "
-                                    >
-                                        <Check class="h-4 w-4" /> Forward
-                                    </Button>
-                                    <Button
-                                        v-if="
-                                            approvalQueue &&
-                                            canApproveReports &&
-                                            variant.status === 'under_review'
-                                        "
-                                        size="sm"
-                                        class="bg-[#007a2f] hover:bg-[#006428]"
-                                        @click="
-                                            openWorkflow(variant, 'publish')
-                                        "
-                                    >
-                                        <Check class="h-4 w-4" /> Publish
-                                    </Button>
-                                    <Button
-                                        v-if="
-                                            approvalQueue &&
-                                            canApproveReports &&
-                                            variant.status === 'approved'
-                                        "
-                                        size="sm"
-                                        variant="outline"
-                                        class="border-amber-500 text-amber-700"
-                                        @click="
-                                            openWorkflow(variant, 'unapprove')
-                                        "
-                                    >
-                                        <RotateCcw class="h-4 w-4" /> Unapprove
-                                    </Button>
-                                    <Button
-                                        v-if="
-                                            approvalQueue &&
-                                            (canReviewReports ||
-                                                canApproveReports) &&
-                                            [
-                                                'submitted',
-                                                'under_review',
-                                            ].includes(variant.status)
-                                        "
-                                        size="sm"
-                                        variant="outline"
-                                        @click="openWorkflow(variant, 'return')"
-                                    >
-                                        <RotateCcw class="h-4 w-4" /> Return
-                                    </Button>
-                                    <Button
-                                        v-if="
-                                            approvalQueue &&
-                                            canApproveReports &&
-                                            [
-                                                'submitted',
-                                                'under_review',
-                                            ].includes(variant.status)
-                                        "
-                                        size="sm"
-                                        variant="destructive"
-                                        @click="openWorkflow(variant, 'delete')"
-                                    >
-                                        <Trash2 class="h-4 w-4" /> Delete
-                                    </Button>
-                                    <Button
-                                        v-if="printQueue"
-                                        size="sm"
-                                        variant="outline"
-                                        @click="printReport(variant)"
-                                    >
-                                        <Printer class="h-4 w-4" /> Print
-                                    </Button>
-                                    <Button
-                                        v-if="printQueue && variant.downloadUrl"
-                                        size="sm"
-                                        variant="outline"
-                                        as-child
-                                    >
-                                        <a :href="variant.downloadUrl">
-                                            <Download class="h-4 w-4" />
-                                            Download
-                                        </a>
-                                    </Button>
-                                    <Button size="sm" variant="ghost" as-child>
-                                        <Link
-                                            :href="`/quality/reports/${variant.id}`"
-                                        >
-                                            <Eye class="h-4 w-4" />
-                                        </Link>
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
+                        {{ unitDate(group.units[0]) }}
                     </div>
                 </div>
-
+                <ReportVariantActions
+                    v-if="!showUnitRows(group)"
+                    :report="group.first"
+                    :approval-queue="approvalQueue"
+                    :print-queue="printQueue"
+                    :can-review-reports="canReviewReports"
+                    :can-approve-reports="canApproveReports"
+                    @workflow="openWorkflow(group.reports, $event)"
+                    @print="printReport(group.first)"
+                />
                 <div
-                    v-if="report.variants.length > 1"
-                    class="flex flex-wrap justify-end gap-2 border-t border-[#cbdbe1] bg-[#f8fbfc] px-4 py-3"
+                    v-else
+                    class="flex items-center justify-start md:justify-end"
                 >
                     <Button
                         v-if="
                             reviewStage === 'supervisor' &&
-                            !isReportGroupSplit(report) &&
-                            forwardableIdsForRow(report).length > 1
+                            forwardableIds(group.reports).length > 1
                         "
                         type="button"
                         size="sm"
                         class="bg-[#007a2f] text-white hover:bg-[#006428]"
-                        @click="openBulkForward(forwardableIdsForRow(report))"
+                        @click="openBulkForward(forwardableIds(group.reports))"
                     >
                         <Check class="h-4 w-4" />
-                        Forward combined course
+                        Forward all
                     </Button>
-                    <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
-                        @click="toggleReportSplit(report)"
+                    <span v-else class="text-xs text-[#66808a]">
+                        {{ group.units.length }} parts
+                    </span>
+                </div>
+
+                <template v-if="showUnitRows(group)" #children>
+                    <CourseRow
+                        v-for="unit in group.units"
+                        :key="unit.key"
+                        :status="unit.status"
+                        :mixed="unit.mixed"
+                        nested
                     >
-                        <Combine
-                            v-if="isReportGroupSplit(report)"
-                            class="h-4 w-4"
+                        <div class="hidden md:block">
+                            <input
+                                v-if="
+                                    reviewStage === 'supervisor' &&
+                                    forwardableIds(unit.reports).length
+                                "
+                                type="checkbox"
+                                class="h-4 w-4 accent-[#007a2f]"
+                                :checked="isSelected(unit.reports)"
+                                :aria-label="`Select ${group.code} ${unit.label}`"
+                                @change="toggleSelection(unit.reports)"
+                            />
+                        </div>
+                        <div class="min-w-0">
+                            <div class="font-medium text-[#1d2f37]">
+                                {{ unit.label }}
+                            </div>
+                            <div class="truncate text-xs text-[#66808a]">
+                                {{
+                                    [
+                                        ...new Set(
+                                            unit.reports.map((report) =>
+                                                [
+                                                    report.program?.name,
+                                                    report.section?.name,
+                                                ]
+                                                    .filter(Boolean)
+                                                    .join(' — '),
+                                            ),
+                                        ),
+                                    ].join(' · ')
+                                }}
+                            </div>
+                        </div>
+                        <div class="hidden md:block" />
+                        <LecturerCell
+                            :names="unit.lecturer ? [unit.lecturer.name] : []"
+                            :detail="unit.lecturer?.email"
                         />
-                        <Split v-else class="h-4 w-4" />
-                        {{
-                            isReportGroupSplit(report)
-                                ? 'Combine offerings'
-                                : 'Split course offerings'
-                        }}
-                    </Button>
-                </div>
-            </article>
-        </div>
-
-        <div
-            v-if="false"
-            class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
-        >
-            <div
-                class="grid grid-cols-[1.5fr_1fr_0.75fr_0.75fr_auto] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
-            >
-                <span>Report &amp; courses</span>
-                <span>Scope</span>
-                <span>Location</span>
-                <span>Status</span>
-                <span class="sr-only">Actions</span>
-            </div>
-
-            <div
-                v-for="report in reportRows"
-                :key="report.id"
-                class="grid grid-cols-[1.5fr_1fr_0.75fr_0.75fr_auto] items-center gap-4 border-b px-4 py-4 last:border-b-0"
-            >
-                <div class="min-w-0">
-                    <div class="truncate font-medium">{{ report.title }}</div>
-                    <div class="text-sm text-muted-foreground">
-                        {{ report.category }} ·
-                        {{ report.academicYear?.name ?? 'No academic year' }}
-                        · {{ report.createdAt }}
-                    </div>
-                    <div
-                        v-if="report.courses.length"
-                        class="mt-2 flex flex-wrap gap-1.5"
-                    >
-                        <span
-                            v-for="course in report.courses"
-                            :key="course.id"
-                            class="inline-flex max-w-full items-center rounded-md border border-[#9fd8b8] bg-[#eefaf3] px-2 py-1 text-xs font-medium text-[#064426]"
-                            :title="`${course.code} - ${course.title}`"
-                        >
-                            <span class="font-bold">{{ course.code }}</span>
-                            <span class="mx-1">—</span>
-                            <span class="truncate">{{ course.title }}</span>
-                        </span>
-                    </div>
-                    <div v-else class="mt-2 text-xs text-muted-foreground">
-                        No course linked
-                    </div>
-                    <div
-                        v-if="
-                            report.program ||
-                            report.courses.some((course) => course.level)
-                        "
-                        class="mt-2 text-xs text-muted-foreground"
-                    >
-                        {{
-                            report.program
-                                ? `${report.program?.name} (${report.program?.code})`
-                                : 'Program not set'
-                        }}
-                        <span
-                            v-if="report.courses.some((course) => course.level)"
-                        >
-                            · Level
-                            {{
-                                [
-                                    ...new Set(
-                                        report.courses
-                                            .map((course) => course.level)
-                                            .filter(Boolean),
-                                    ),
-                                ].join(', ')
-                            }}
-                        </span>
-                    </div>
-                    <div
-                        v-if="
-                            report.variants.length > 1 &&
-                            !isReportGroupSplit(report)
-                        "
-                        class="mt-2 rounded-md bg-[#edf6fa] px-2 py-1.5 text-xs font-medium text-[#234d5d]"
-                    >
-                        {{ report.variants.length }} program reports grouped
-                    </div>
-                    <div
-                        v-for="variant in visibleReportVariants(report)"
-                        :key="variant.id"
-                        class="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#c7dce5] bg-[#f8fbfc] px-2 py-1.5 text-xs"
-                    >
-                        <span class="font-medium text-[#234d5d]">
-                            {{ variant.program?.name ?? 'Program not set' }}
-                        </span>
-                        <span class="text-muted-foreground">
-                            {{ variant.program?.code ?? '—' }}
-                        </span>
-                        <span class="text-muted-foreground">
-                            Level
-                            {{
-                                variant.courses
-                                    .map((course) => course.level)
-                                    .find(Boolean) ?? '—'
-                            }}
-                        </span>
-                        <Badge variant="secondary">
-                            {{ variant.status }}
-                        </Badge>
-                        <Link
-                            :href="`/quality/reports/${variant.id}`"
-                            class="ml-auto font-medium text-[#007a2f] hover:underline"
-                        >
-                            Open
-                        </Link>
-                    </div>
-                </div>
-
-                <div class="min-w-0 text-sm">
-                    <div class="truncate">{{ report.school?.name }}</div>
-                    <div class="truncate text-muted-foreground">
-                        {{
-                            report.lecturer
-                                ? `${report.lecturer?.name} - ${report.department?.name}`
-                                : (report.department?.name ?? 'School-wide')
-                        }}
-                    </div>
-                </div>
-
-                <div>
-                    <Badge
-                        class="border border-[#9fd8b8] bg-[#eefaf3] text-[#063f22]"
-                        variant="secondary"
-                    >
-                        {{ report.location }}
-                    </Badge>
-                </div>
-
-                <div>
-                    <div class="flex items-center gap-2">
-                        <Badge variant="secondary">{{ report.status }}</Badge>
-                        <Lock
-                            v-if="report.isLocked"
-                            class="h-4 w-4 text-muted-foreground"
+                        <div class="space-y-1">
+                            <StatusPill
+                                :status="unit.status"
+                                :mixed="unit.mixed"
+                            />
+                            <div class="text-xs text-[#66808a]">
+                                {{ unitDate(unit) }}
+                            </div>
+                        </div>
+                        <ReportVariantActions
+                            :report="unit.reports[0]"
+                            :approval-queue="approvalQueue"
+                            :print-queue="printQueue"
+                            :can-review-reports="canReviewReports"
+                            :can-approve-reports="canApproveReports"
+                            @workflow="openWorkflow(unit.reports, $event)"
+                            @print="printReport(unit.reports[0])"
                         />
-                    </div>
-                </div>
-
-                <div class="flex justify-end gap-2">
-                    <Button
-                        v-if="report.variants.length > 1"
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        class="border-[#8bcfaa] text-[#006d2b] hover:bg-[#e7f6ed]"
-                        @click="toggleReportSplit(report)"
-                    >
-                        <Combine
-                            v-if="isReportGroupSplit(report)"
-                            class="h-4 w-4"
-                        />
-                        <Split v-else class="h-4 w-4" />
-                        {{
-                            isReportGroupSplit(report)
-                                ? 'Combine offerings'
-                                : 'Split course offerings'
-                        }}
-                    </Button>
-
-                    <Button
-                        v-if="
-                            approvalQueue &&
-                            canReviewReports &&
-                            report.status === 'submitted'
-                        "
-                        size="sm"
-                        class="bg-[#007a2f] hover:bg-[#006428]"
-                        type="button"
-                        @click="openWorkflow(report, 'forward')"
-                    >
-                        <Check class="h-4 w-4" />
-                        Forward
-                    </Button>
-
-                    <Button
-                        v-if="
-                            approvalQueue &&
-                            canApproveReports &&
-                            report.status === 'under_review'
-                        "
-                        size="sm"
-                        type="button"
-                        class="bg-[#007a2f] hover:bg-[#006428]"
-                        @click="openWorkflow(report, 'publish')"
-                    >
-                        <Check class="h-4 w-4" />
-                        Publish
-                    </Button>
-
-                    <Button
-                        v-if="
-                            approvalQueue &&
-                            canApproveReports &&
-                            report.status === 'approved'
-                        "
-                        size="sm"
-                        variant="outline"
-                        type="button"
-                        class="border-amber-500 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
-                        @click="openWorkflow(report, 'unapprove')"
-                    >
-                        <RotateCcw class="h-4 w-4" />
-                        Unapprove
-                    </Button>
-
-                    <Button
-                        v-if="
-                            approvalQueue &&
-                            (canReviewReports || canApproveReports) &&
-                            (report.status === 'submitted' ||
-                                report.status === 'under_review')
-                        "
-                        size="sm"
-                        variant="outline"
-                        type="button"
-                        @click="openWorkflow(report, 'return')"
-                    >
-                        <RotateCcw class="h-4 w-4" />
-                        Return
-                    </Button>
-
-                    <Button
-                        v-if="
-                            approvalQueue &&
-                            canApproveReports &&
-                            ['submitted', 'under_review'].includes(
-                                report.status,
-                            )
-                        "
-                        size="sm"
-                        variant="destructive"
-                        type="button"
-                        @click="openWorkflow(report, 'delete')"
-                    >
-                        <Trash2 class="h-4 w-4" />
-                        Delete
-                    </Button>
-
-                    <Button
-                        v-if="printQueue"
-                        variant="outline"
-                        size="sm"
-                        type="button"
-                        @click="printReport(report)"
-                    >
-                        <Printer class="h-4 w-4" />
-                        Print
-                    </Button>
-
-                    <Button
-                        v-if="printQueue && report.downloadUrl"
-                        variant="outline"
-                        size="sm"
-                        as-child
-                    >
-                        <a :href="report.downloadUrl ?? ''">
-                            <Download class="h-4 w-4" />
-                            Download
-                        </a>
-                    </Button>
-
-                    <Button variant="ghost" size="sm" as-child>
-                        <Link :href="`/quality/reports/${report.id}`">
-                            <Eye class="h-4 w-4" />
-                        </Link>
-                    </Button>
-                </div>
-            </div>
-        </div>
+                    </CourseRow>
+                </template>
+            </CourseRow>
+        </CourseList>
 
         <p
-            v-if="reports.length === 0"
+            v-if="displayedGroups.length === 0"
             class="py-8 text-center text-muted-foreground"
         >
             {{ emptyMessage }}

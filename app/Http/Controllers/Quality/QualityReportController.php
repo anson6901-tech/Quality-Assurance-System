@@ -6,13 +6,18 @@ use App\Enums\UniversityRole;
 use App\Http\Controllers\Controller;
 use App\Models\AcademicYear;
 use App\Models\Course;
+use App\Models\CourseOffering;
+use App\Models\CourseSplit;
 use App\Models\Department;
 use App\Models\Program;
 use App\Models\QualityReport;
 use App\Models\QualityRolePermission;
 use App\Models\School;
+use App\Models\Section;
 use App\Models\Semester;
 use App\Models\User;
+use App\Support\CourseBoard;
+use App\Support\CoursePartitions;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -41,7 +46,7 @@ class QualityReportController extends Controller
                 )
                 ->tap(fn ($query) => $this->applyApprovalScope($query, $request->user()))
                 ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
-                ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
+                ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'section', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
                 ->latest()
                 ->get()
                 ->map(fn (QualityReport $report) => $this->serializeReport($report));
@@ -66,7 +71,7 @@ class QualityReportController extends Controller
         $reports = QualityReport::query()
             ->where('uploaded_by', $request->user()->id)
             ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
-            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
+            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'section', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
             ->latest()
             ->get()
             ->map(fn (QualityReport $report) => $this->serializeReport($report));
@@ -96,7 +101,7 @@ class QualityReportController extends Controller
             ->whereIn('status', ['under_review', 'approved'])
             ->tap(fn ($query) => $this->applyApprovalScope($query, $request->user()))
             ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
-            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
+            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'section', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
             ->latest()
             ->get()
             ->map(fn (QualityReport $report) => $this->serializeReport($report));
@@ -127,7 +132,7 @@ class QualityReportController extends Controller
             ->visibleTo($request->user())
             ->where('status', 'approved')
             ->tap(fn ($query) => $this->applyReportFilters($query, $filters))
-            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
+            ->with(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'section', 'lecturer:id,name,email', 'courses:id,code,title,level', 'uploader:id,name'])
             ->latest()
             ->get()
             ->map(fn (QualityReport $report) => $this->serializeReport($report));
@@ -169,83 +174,48 @@ class QualityReportController extends Controller
             ->firstWhere('academic_year_id', $defaultAcademicYearId)?->id;
         $semesterIds = $semesters->pluck('id');
 
-        $courseQuery = Course::query()
-            ->with([
-                'department.school:id,name',
-                'offerings' => fn ($query) => $query
-                    ->whereIn('semester_id', $semesterIds)
-                    ->with('program:id,department_id,name,code'),
-            ])
-            ->with('lecturers')
+        $courses = Course::query()
+            ->with(CourseBoard::relations($semesterIds->all()))
             ->with(['qualityReports' => fn ($query) => $query
                 ->where('uploaded_by', $request->user()->id)
                 ->whereIn('semester_id', $semesterIds)
                 ->with('reviews:id,quality_report_id,action,created_at')
                 ->latest()])
-            ->whereHas('lecturers');
-
-        $courses = $courseQuery
+            ->whereHas('offerings', fn ($query) => $query->whereIn('semester_id', $semesterIds))
             ->orderBy('code')
-            ->get(['id', 'department_id', 'code', 'title', 'course_type', 'level', 'credit_hours'])
-            ->flatMap(function (Course $course) {
-                $offerings = $course->offerings->isEmpty()
-                    ? collect([null])
-                    : $course->offerings;
+            ->get();
 
-                return $offerings->map(function ($offering) use ($course) {
-                    $lecturers = $offering
-                        ? $course->lecturers
-                            ->where('pivot.program_id', $offering->program_id)
-                            ->where('pivot.semester_id', $offering->semester_id)
-                        : $course->lecturers;
+        $assignmentRows = CourseBoard::assignmentRows($courses->pluck('id'), $semesterIds->all());
 
-                    return [
-                        'offeringId' => $offering?->id,
-                        'id' => $course->id,
-                        'code' => $course->code,
-                        'title' => $course->title,
-                        'courseType' => $course->course_type,
-                        'program' => $offering?->program ? [
-                            'id' => $offering->program->id,
-                            'name' => $offering->program->name,
-                            'code' => $offering->program->code,
-                        ] : null,
-                        'level' => $offering?->level ?? $course->level,
-                        'creditHours' => $course->credit_hours,
-                        'department' => $course->department ? [
-                            'id' => $course->department->id,
-                            'name' => $course->department->name,
-                            'schoolId' => $course->department->school_id,
-                            'school' => $course->department->school ? [
-                                'id' => $course->department->school->id,
-                                'name' => $course->department->school->name,
-                            ] : null,
-                        ] : null,
-                        'lecturerCount' => $lecturers->count(),
-                        'lecturers' => $lecturers
-                            ->map(fn (User $lecturer) => [
-                                'id' => $lecturer->id,
-                                'name' => $lecturer->name,
-                                'email' => $lecturer->email,
-                                'semesterId' => $lecturer->pivot->semester_id,
-                            ])->values(),
-                        'reports' => $course->qualityReports
-                            ->where('program_id', $offering?->program_id)
-                            ->map(fn (QualityReport $report) => [
-                                'id' => $report->id,
-                                'lecturerId' => $report->lecturer_id,
-                                'semesterId' => $report->semester_id,
-                                'title' => $report->title,
-                                'status' => $report->status,
-                                'uploadedAt' => $report->created_at->toIso8601String(),
-                                'pushedAt' => $report->reviews
-                                    ->firstWhere('action', 'submitted_to_supervisor')
-                                    ?->created_at
-                                    ?->toIso8601String(),
-                            ])->values(),
-                    ];
-                });
-            });
+        $courses = CourseBoard::entries(
+            $courses,
+            $semesterIds->all(),
+            $assignmentRows,
+            fn (Course $course, int $semesterId, $cells) => [
+                'reports' => $course->qualityReports
+                    ->where('semester_id', $semesterId)
+                    ->filter(fn (QualityReport $report) => $cells->contains(
+                        fn (array $cell) => $cell['programId'] === $report->program_id
+                            && $cell['sectionId'] === $report->section_id,
+                    ))
+                    ->map(fn (QualityReport $report) => [
+                        'id' => $report->id,
+                        'lecturerId' => $report->lecturer_id,
+                        'programId' => $report->program_id,
+                        'sectionId' => $report->section_id,
+                        'title' => $report->title,
+                        'status' => $report->status,
+                        'uploadedAt' => $report->created_at->toIso8601String(),
+                        'pushedAt' => $report->reviews
+                            ->firstWhere('action', 'submitted_to_supervisor')
+                            ?->created_at
+                            ?->toIso8601String(),
+                    ])
+                    ->values(),
+            ],
+        )->filter(fn (array $entry) => collect($entry['parts'])->contains(
+            fn (array $part) => $part['lecturers'] !== [],
+        ))->values();
 
         $departments = Department::query()
             ->orderBy('name')
@@ -299,6 +269,9 @@ class QualityReportController extends Controller
                 'min:1',
             ],
             'program_ids.*' => ['integer', 'distinct', Rule::exists('programs', 'id')],
+            'cells' => ['nullable', 'array', 'min:1'],
+            'cells.*.program_id' => ['nullable', 'integer', Rule::exists('programs', 'id')],
+            'cells.*.section_id' => ['nullable', 'integer', Rule::exists('sections', 'id')],
             'summary' => ['nullable', 'string'],
             'lecturer_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
             'course_ids' => ['required', 'array', 'min:1'],
@@ -326,22 +299,45 @@ class QualityReportController extends Controller
         $filePaths = [];
 
         try {
-            $programIds = collect(
-                $validated['program_ids']
-                    ?? (isset($validated['program_id']) ? [$validated['program_id']] : [null])
-            )
-                ->map(fn ($programId) => $programId === null ? null : (int) $programId)
-                ->unique()
-                ->values();
+            $cellPairs = isset($validated['cells'])
+                ? collect($validated['cells'])->map(fn (array $cell) => [
+                    'program_id' => isset($cell['program_id']) ? (int) $cell['program_id'] : null,
+                    'section_id' => isset($cell['section_id']) ? (int) $cell['section_id'] : null,
+                    'match_section' => true,
+                ])
+                : collect(
+                    $validated['program_ids']
+                        ?? (isset($validated['program_id']) ? [$validated['program_id']] : [null])
+                )->map(fn ($programId) => [
+                    'program_id' => $programId === null ? null : (int) $programId,
+                    'section_id' => null,
+                    'match_section' => false,
+                ]);
+            $cellPairs = $cellPairs->unique(fn (array $cell) => "{$cell['program_id']}:{$cell['section_id']}")->values();
             $contexts = [];
 
-            foreach ($programIds as $programId) {
+            foreach ($cellPairs as $cellPair) {
+                $programId = $cellPair['program_id'];
+                $sectionId = $cellPair['section_id'];
+
+                if ($sectionId !== null) {
+                    abort_unless(
+                        Section::query()->whereKey($sectionId)->where('program_id', $programId)->exists(),
+                        422,
+                    );
+                }
+
                 $courses = Course::query()
                     ->whereIn('id', $validated['course_ids'])
-                    ->with(['lecturers' => function ($query) use ($semesterId, $programId): void {
+                    ->with(['lecturers' => function ($query) use ($semesterId, $programId, $sectionId, $cellPair): void {
                         $this->scopeCourseLecturerAssignments($query, $semesterId);
                         if ($programId !== null) {
                             $query->where('course_lecturer.program_id', $programId);
+                        }
+                        if ($cellPair['match_section']) {
+                            $sectionId === null
+                                ? $query->whereNull('course_lecturer.section_id')
+                                : $query->where('course_lecturer.section_id', $sectionId);
                         }
                     }])
                     ->get(['id', 'department_id']);
@@ -385,6 +381,7 @@ class QualityReportController extends Controller
 
                 $contexts[] = [
                     'program' => $program,
+                    'sectionId' => $sectionId,
                     'department' => $department,
                     'lecturer' => User::query()->findOrFail($lecturerId),
                     'courses' => $courses,
@@ -404,6 +401,7 @@ class QualityReportController extends Controller
                         'school_id' => $context['department']->school_id,
                         'department_id' => $context['department']->id,
                         'program_id' => $context['program']?->id,
+                        'section_id' => $context['sectionId'],
                         'lecturer_id' => $context['lecturer']->id,
                         'file_path' => $context['filePath'],
                         'uploaded_by' => $request->user()->id,
@@ -417,7 +415,7 @@ class QualityReportController extends Controller
             Inertia::flash('toast', [
                 'type' => 'success',
                 'message' => trans_choice(
-                    '{1} Report uploaded as a draft.|[2,*] :count program reports uploaded as drafts.',
+                    '{1} Report uploaded as a draft.|[2,*] Report uploaded as a draft for :count program sections.',
                     count($contexts),
                     ['count' => count($contexts)],
                 ),
@@ -518,6 +516,10 @@ class QualityReportController extends Controller
     {
         abort_unless($this->canManageApprovalReport($request, $report), 403);
         abort_unless(in_array($report->status, ['submitted', 'under_review'], true), 409);
+        abort_if(
+            $report->status === 'submitted' && ! $this->canReviewAssignedReport($request, $report),
+            403,
+        );
 
         DB::transaction(function () use ($request, $report): void {
             $report->update(['status' => 'approved']);
@@ -606,6 +608,10 @@ class QualityReportController extends Controller
         }
         abort_unless($this->approvalScopedReportExists($request, $report), 403);
         abort_unless(in_array($report->status, ['submitted', 'under_review'], true), 409);
+        abort_if(
+            $report->status === 'submitted' && ! $this->canReviewAssignedReport($request, $report),
+            403,
+        );
 
         $validated = $request->validate([
             'note' => ['required', 'string', 'max:2000'],
@@ -712,7 +718,7 @@ class QualityReportController extends Controller
     {
         abort_unless($this->canViewReport($request, $report), 403);
 
-        $report->load(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'lecturer:id,name,email', 'courses:id,code,title,level', 'assignedSupervisor:id,name,email,university_role', 'uploader:id,name,email,university_role', 'reviews.actor:id,name,email,university_role']);
+        $report->load(['academicYear:id,name,status', 'semester:id,name,academic_year_id', 'school:id,name', 'department:id,name', 'program:id,name,code', 'section', 'lecturer:id,name,email', 'courses:id,code,title,level', 'assignedSupervisor:id,name,email,university_role', 'uploader:id,name,email,university_role', 'reviews.actor:id,name,email,university_role']);
 
         return Inertia::render('quality/reports/Show', [
             'report' => $this->serializeReport($report, includeDetails: true),
@@ -760,6 +766,51 @@ class QualityReportController extends Controller
         });
     }
 
+    /** @var array<string, array{mode: string, levels: array<int, string|null>}> */
+    private array $partContexts = [];
+
+    /**
+     * The course part (per its saved split) a report belongs to.
+     *
+     * @return array{key: string, label: string, mode: string}|null
+     */
+    private function reportPart(QualityReport $report): ?array
+    {
+        $course = $report->courses->first();
+
+        if (! $course || ! $report->semester_id) {
+            return null;
+        }
+
+        $contextKey = "{$course->id}:{$report->semester_id}";
+        $this->partContexts[$contextKey] ??= [
+            'mode' => CoursePartitions::normaliseMode(CourseSplit::query()
+                ->where('course_id', $course->id)
+                ->where('semester_id', $report->semester_id)
+                ->value('mode')),
+            'levels' => CourseOffering::query()
+                ->where('course_id', $course->id)
+                ->where('semester_id', $report->semester_id)
+                ->pluck('level', 'program_id')
+                ->all(),
+        ];
+
+        $context = $this->partContexts[$contextKey];
+        $cell = [
+            'programId' => $report->program_id,
+            'sectionId' => $report->section_id,
+            'level' => $context['levels'][$report->program_id] ?? $course->level,
+            'program' => $report->program ? ['code' => $report->program->code] : null,
+            'section' => $report->section?->toOption(),
+        ];
+
+        return [
+            'key' => CoursePartitions::partKey($context['mode'], $cell),
+            'label' => CoursePartitions::partLabel($context['mode'], collect([$cell])),
+            'mode' => $context['mode'],
+        ];
+    }
+
     private function serializeReport(QualityReport $report, bool $includeDetails = false): array
     {
         return [
@@ -778,6 +829,7 @@ class QualityReportController extends Controller
             ] : null,
             'summary' => $includeDetails ? $report->summary : str($report->summary ?? '')->limit(140)->toString(),
             'filePath' => $report->file_path,
+            'canView' => $this->canViewReport(request(), $report),
             'fileUrl' => $report->file_path ? route('quality.reports.file', $report) : null,
             'downloadUrl' => $report->file_path ? route('quality.reports.download', $report) : null,
             'location' => match ($report->status) {
@@ -793,6 +845,8 @@ class QualityReportController extends Controller
                 'name' => $report->program->name,
                 'code' => $report->program->code,
             ] : null,
+            'section' => $report->section?->toOption(),
+            'part' => $this->reportPart($report),
             'lecturer' => $report->lecturer ? [
                 'id' => $report->lecturer->id,
                 'name' => $report->lecturer->name,
@@ -1094,7 +1148,7 @@ class QualityReportController extends Controller
             'levels' => Course::query()
                 ->whereNotNull('level')
                 ->distinct()
-                ->orderByRaw('CAST(level AS INTEGER)')
+                ->orderByRaw('(level + 0)')
                 ->pluck('level')
                 ->map(fn (string $level) => [
                     'id' => $level,

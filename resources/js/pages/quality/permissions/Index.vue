@@ -11,7 +11,7 @@ import {
     Users,
 } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
-import Heading from '@/components/Heading.vue';
+import PageBanner from '@/components/PageBanner.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -99,24 +99,22 @@ const savePermissions = () => {
     <Head title="Permissions" />
 
     <section class="space-y-6">
-        <div
-            class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        <PageBanner
+            title="Permissions"
+            description="Control which modules and actions are available to each role"
         >
-            <Heading
-                variant="small"
-                title="Permissions"
-                description="Control which modules and actions are available to each role"
-            />
-            <Button
-                as-child
-                variant="outline"
-                class="border-[#89cda6] text-[#076b35]"
-            >
-                <Link href="/quality/roles"
-                    ><Users class="size-4" /> View roles</Link
+            <template #actions>
+                <Button
+                    as-child
+                    variant="outline"
+                    class="border-[#89cda6] text-[#076b35]"
                 >
-            </Button>
-        </div>
+                    <Link href="/quality/roles"
+                        ><Users class="size-4" /> View roles</Link
+                    >
+                </Button>
+            </template>
+        </PageBanner>
 
         <div
             class="flex flex-col gap-4 rounded-lg border border-[#9fd8b8] bg-[#eefaf3] p-5 shadow-sm sm:flex-row sm:items-end sm:justify-between"

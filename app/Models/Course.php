@@ -34,7 +34,7 @@ class Course extends Model
     {
         return $this->belongsToMany(User::class, 'course_lecturer', 'course_id', 'lecturer_id')
             ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
-            ->withPivot(['program_id', 'semester_id', 'student_count', 'allocated_hours'])
+            ->withPivot(['program_id', 'section_id', 'semester_id', 'student_count', 'allocated_hours'])
             ->withTimestamps();
     }
 
@@ -50,5 +50,11 @@ class Course extends Model
     public function offerings(): HasMany
     {
         return $this->hasMany(CourseOffering::class);
+    }
+
+    /** @return HasMany<CourseSplit, $this> */
+    public function splits(): HasMany
+    {
+        return $this->hasMany(CourseSplit::class);
     }
 }

@@ -73,9 +73,9 @@ it('shows a lecturer only their assigned courses and published reports', functio
             ->component('quality/my-courses/Index')
             ->has('courses', 1)
             ->where('courses.0.code', 'NURS401')
-            ->where('courses.0.studentCount', 45)
-            ->has('courses.0.reports', 1)
-            ->where('courses.0.reports.0.title', 'Approved clinical report'));
+            ->where('courses.0.parts.0.studentCount', 45)
+            ->has('courses.0.parts.0.reports', 1)
+            ->where('courses.0.parts.0.reports.0.title', 'Approved clinical report'));
 });
 
 it('does not expose the assigned-course portal without own-report scope', function () {

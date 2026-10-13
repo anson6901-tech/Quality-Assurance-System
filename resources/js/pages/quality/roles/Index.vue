@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { KeyRound, Plus, ShieldCheck, Trash2, Users } from 'lucide-vue-next';
-import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
+import PageBanner from '@/components/PageBanner.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,24 +50,22 @@ const deleteRole = (role: RoleSummary) => {
     <Head title="Roles" />
 
     <section class="space-y-6">
-        <div
-            class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        <PageBanner
+            title="Roles"
+            description="Create job roles and review how many users and permissions each role has"
         >
-            <Heading
-                variant="small"
-                title="Roles"
-                description="Create job roles and review how many users and permissions each role has"
-            />
-            <Button
-                as-child
-                variant="outline"
-                class="border-[#89cda6] text-[#076b35]"
-            >
-                <Link href="/quality/permissions">
-                    <KeyRound class="size-4" /> Manage permissions
-                </Link>
-            </Button>
-        </div>
+            <template #actions>
+                <Button
+                    as-child
+                    variant="outline"
+                    class="border-[#89cda6] text-[#076b35]"
+                >
+                    <Link href="/quality/permissions">
+                        <KeyRound class="size-4" /> Manage permissions
+                    </Link>
+                </Button>
+            </template>
+        </PageBanner>
 
         <form
             class="flex flex-col gap-4 rounded-lg border border-[#9fd8b8] bg-[#eefaf3] p-5 shadow-sm sm:flex-row sm:items-end"
