@@ -32,69 +32,48 @@ This workflow establishes a clear and accountable approval process in which cour
 
 ## First-Time Setup
 
-1. Install PHP dependencies.
+### Run with Docker
+
+Install Docker Desktop, then from the project root build the development image
+and run the setup script. It starts MySQL, installs dependencies, applies
+migrations, and builds the frontend:
 
 ```bash
-composer install
+docker compose run --build --rm app composer run setup
 ```
 
-2. Install JavaScript dependencies.
+Start the app:
 
 ```bash
-npm install
+docker compose up
 ```
 
-3. Create the environment file.
+Open http://127.0.0.1:8000. The source is mounted into the container, and the
+development server, queue worker, Vite server, and MySQL run together.
+Dependencies and MySQL data are kept in Docker-managed volumes.
+
+To run Laravel directly on your Mac instead, start only MySQL with
+`docker compose up -d db`, keep `DB_HOST=127.0.0.1` in `.env`, and run
+`php artisan config:clear` before `php artisan serve`. MySQL is published only
+on your local machine at port 3306; if that port is already in use, stop the
+other MySQL server or change the published port and `DB_PORT` in `.env`.
+
+The default MySQL credentials are for local development only. Change
+`DB_PASSWORD` and `MYSQL_ROOT_PASSWORD` in `.env` before exposing the database
+outside your development machine.
+
+Link public storage for uploaded report files from another terminal:
 
 ```bash
-cp .env.example .env
+docker compose exec app php artisan storage:link
 ```
 
-On Windows PowerShell:
+### Run without Docker
 
-```powershell
-Copy-Item .env.example .env
-```
-
-4. Generate the application key.
-
-```bash
-php artisan key:generate
-```
-
-5. Configure the database in `.env`.
-
-For local SQLite development, create the database file and set:
-
-```env
-DB_CONNECTION=sqlite
-DB_DATABASE=database/database.sqlite
-```
-
-Then run:
-
-```bash
-php artisan migrate --seed
-```
-
-6. Link public storage for uploaded report files.
-
-```bash
-php artisan storage:link
-```
-
-7. Start the app locally.
-
-```bash
-php artisan serve
-npm run dev
-```
-
-Open the app at:
-
-```text
-http://127.0.0.1:8000
-```
+Install PHP 8.3 or newer with Composer, plus Node.js and npm and a MySQL server.
+Set `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD` in
+`.env` for your MySQL server, then run `composer run setup` and
+`composer run dev` from the project root.
 
 ## Useful Development Commands
 
