@@ -85,6 +85,11 @@ export function initializeTheme(): void {
 
 const appearance = ref<Appearance>('system');
 
+// Stays false until mounted so the first client render matches SSR output
+// (the server cannot see the browser's color scheme); a mismatch here breaks
+// hydration and later Inertia page swaps.
+const systemPrefersDark = ref(false);
+
 export function useAppearance(): UseAppearanceReturn {
     onMounted(() => {
         const savedAppearance = localStorage.getItem(
@@ -94,11 +99,13 @@ export function useAppearance(): UseAppearanceReturn {
         if (savedAppearance) {
             appearance.value = savedAppearance;
         }
+
+        systemPrefersDark.value = prefersDark();
     });
 
     const resolvedAppearance = computed<ResolvedAppearance>(() => {
         if (appearance.value === 'system') {
-            return prefersDark() ? 'dark' : 'light';
+            return systemPrefersDark.value ? 'dark' : 'light';
         }
 
         return appearance.value;
