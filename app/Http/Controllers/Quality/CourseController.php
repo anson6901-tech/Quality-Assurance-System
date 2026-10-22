@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Quality;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course;
+use App\Models\Department;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -19,8 +20,13 @@ class CourseController extends Controller
 
         return Inertia::render('quality/courses/Index', [
             'courses' => Course::query()
+                ->with('department:id,school_id,name', 'department.school:id,name')
                 ->orderBy('code')
                 ->get(),
+            'departments' => Department::query()
+                ->with('school:id,name')
+                ->orderBy('name')
+                ->get(['id', 'school_id', 'name']),
         ]);
     }
 
@@ -34,10 +40,11 @@ class CourseController extends Controller
             'course_type' => ['required', 'string', Rule::in(['normal', 'module'])],
             'level' => ['required', 'string', 'regex:/^[1-9][0-9]*00$/'],
             'credit_hours' => ['nullable', 'integer', 'min:1', 'max:12'],
+            'department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')],
         ]);
 
         Course::create([
-            'department_id' => null,
+            'department_id' => $validated['department_id'] ?? null,
             'program_id' => null,
             'code' => $validated['code'],
             'title' => $validated['title'],
@@ -83,14 +90,22 @@ class CourseController extends Controller
                 ? strtolower(trim((string) ($row[$columns['course_type']] ?? 'normal')))
                 : 'normal';
             $level = trim((string) ($row[$columns['level']] ?? ''));
+            $departmentCode = $columns->has('department_code')
+                ? trim((string) ($row[$columns['department_code']] ?? ''))
+                : '';
+            $department = $departmentCode === ''
+                ? null
+                : Department::query()->where('code', $departmentCode)->first();
 
-            if ($code === '' || $title === '') {
+            if ($code === '' || $title === '' || ($departmentCode !== '' && ! $department)) {
                 $skipped++;
+
                 continue;
             }
 
             if (! in_array($courseType, ['normal', 'module'], true)) {
                 $skipped++;
+
                 continue;
             }
 
@@ -99,18 +114,20 @@ class CourseController extends Controller
                 && (! ctype_digit($creditHours) || (int) $creditHours < 1 || (int) $creditHours > 12)
             ) {
                 $skipped++;
+
                 continue;
             }
 
             if (! preg_match('/^[1-9][0-9]*00$/', $level)) {
                 $skipped++;
+
                 continue;
             }
 
             Course::updateOrCreate(
                 ['code' => $code],
                 [
-                    'department_id' => null,
+                    'department_id' => $department?->id,
                     'program_id' => null,
                     'title' => $title,
                     'course_type' => $courseType,
@@ -147,9 +164,10 @@ class CourseController extends Controller
                 'course_type',
                 'level',
                 'credit_hours',
+                'department_code',
             ]);
 
-            fputcsv($output, ['', '', 'normal', '100', '3']);
+            fputcsv($output, ['', '', 'normal', '100', '3', '']);
 
             fclose($output);
         }, 'course-import-template.csv', [
@@ -167,10 +185,11 @@ class CourseController extends Controller
             'course_type' => ['required', 'string', Rule::in(['normal', 'module'])],
             'level' => ['required', 'string', 'regex:/^[1-9][0-9]*00$/'],
             'credit_hours' => ['nullable', 'integer', 'min:1', 'max:12'],
+            'department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')],
         ]);
 
         $course->update([
-            'department_id' => null,
+            'department_id' => $validated['department_id'] ?? null,
             'program_id' => null,
             'code' => $validated['code'],
             'title' => $validated['title'],
@@ -196,5 +215,4 @@ class CourseController extends Controller
 
         return to_route('quality.courses.index');
     }
-
 }

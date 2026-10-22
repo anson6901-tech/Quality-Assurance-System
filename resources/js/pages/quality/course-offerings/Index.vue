@@ -44,6 +44,7 @@ type Course = {
     title: string;
     level: string | null;
     courseType: string;
+    homeDepartment: string | null;
     mountedLevel?: string;
 };
 type Offering = {
@@ -427,7 +428,8 @@ const semesterLabel = (semester: Semester) => {
                             </span>
                             <span class="text-sm text-muted-foreground">
                                 Level {{ course.level ?? 'not set' }} ·
-                                {{ course.courseType }}
+                                {{ course.courseType }} ·
+                                {{ course.homeDepartment ?? 'Shared' }}
                             </span>
                         </span>
                         <span
@@ -466,12 +468,7 @@ const semesterLabel = (semester: Semester) => {
                 </div>
                 <CourseList
                     v-if="mountedCourses.length"
-                    :headings="[
-                        'Course',
-                        'Type',
-                        'Lecturer',
-                        'Action',
-                    ]"
+                    :headings="['Course', 'Type', 'Lecturer', 'Action']"
                     columns="minmax(0,2fr) 100px minmax(140px,1fr) minmax(190px,auto)"
                 >
                     <CourseRow

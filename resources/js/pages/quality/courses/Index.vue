@@ -22,6 +22,11 @@ import { Label } from '@/components/ui/label';
 import { useSearchParam } from '@/composables/useSearchParam';
 import { matchesSearch } from '@/lib/coursePartitions';
 
+type Department = {
+    id: number;
+    name: string;
+    school: { id: number; name: string } | null;
+};
 type Course = {
     id: number;
     code: string;
@@ -29,10 +34,12 @@ type Course = {
     course_type: 'normal' | 'module';
     level: string | null;
     credit_hours: number | null;
+    department: Department | null;
 };
 
 const props = defineProps<{
     courses: Course[];
+    departments: Department[];
 }>();
 
 defineOptions({
@@ -42,6 +49,7 @@ defineOptions({
 });
 
 const form = useForm({
+    department_id: '' as number | '',
     code: '',
     title: '',
     course_type: 'normal',
@@ -50,6 +58,7 @@ const form = useForm({
 });
 const editForm = useForm({
     id: null as number | null,
+    department_id: '' as number | '',
     code: '',
     title: '',
     course_type: 'normal',
@@ -70,9 +79,18 @@ const filteredCourses = computed(() =>
     props.courses.filter(
         (course) =>
             (!levelFilter.value || course.level === levelFilter.value) &&
-            matchesSearch(courseSearch.value, [course.code, course.title]),
+            matchesSearch(courseSearch.value, [
+                course.code,
+                course.title,
+                course.department?.name,
+            ]),
     ),
 );
+
+const departmentLabel = (department: Department) =>
+    department.school
+        ? `${department.name} — ${department.school.name}`
+        : department.name;
 
 const closeAddCourse = () => {
     addCourseOpen.value = false;
@@ -86,6 +104,7 @@ const submit = () =>
     });
 const startEdit = (course: Course) => {
     editForm.id = course.id;
+    editForm.department_id = course.department?.id ?? '';
     editForm.code = course.code;
     editForm.title = course.title;
     editForm.course_type = course.course_type;
@@ -171,19 +190,20 @@ const removeCourse = (course: Course) =>
                 v-model="courseSearch"
                 :shown="filteredCourses.length"
                 :total="courses.length"
-                placeholder="Search courses by code or title"
+                placeholder="Search courses by code, title or home department"
             />
 
             <CourseList
                 v-if="filteredCourses.length"
                 :headings="[
                     'Course',
+                    'Home department',
                     'Level',
                     'Type',
                     'Credit hours',
                     'Actions',
                 ]"
-                columns="minmax(0,2fr) 110px 110px 110px minmax(170px,auto)"
+                columns="minmax(0,2fr) minmax(0,1.5fr) 100px 100px 100px minmax(170px,auto)"
             >
                 <CourseRow
                     v-for="course in filteredCourses"
@@ -201,6 +221,17 @@ const removeCourse = (course: Course) =>
                         <div class="truncate text-sm text-[#3c5059]">
                             {{ course.title }}
                         </div>
+                    </div>
+                    <div class="min-w-0 text-sm">
+                        <template v-if="course.department">
+                            <div class="truncate text-[#1d2f37]">
+                                {{ course.department.name }}
+                            </div>
+                            <div class="truncate text-xs text-[#66808a]">
+                                {{ course.department.school?.name }}
+                            </div>
+                        </template>
+                        <span v-else class="text-[#66808a]">Shared</span>
                     </div>
                     <div class="text-sm text-[#3c5059]">
                         {{ course.level ? `Level ${course.level}` : 'Not set' }}
@@ -281,8 +312,8 @@ const removeCourse = (course: Course) =>
                     </a>
                 </Button>
                 <p class="text-xs leading-5 text-muted-foreground">
-                    Columns: code, title, course_type, level, credit_hours.
-                    Use
+                    Columns: code, title, course_type, level, credit_hours,
+                    department_code (optional home department). Use
                     <strong>normal</strong> or <strong>module</strong> for
                     course_type.
                 </p>
@@ -324,6 +355,28 @@ const removeCourse = (course: Course) =>
                         Add a reusable course to the catalogue.
                     </DialogDescription>
                 </DialogHeader>
+                <div class="grid gap-2">
+                    <Label for="add-department">Home department</Label>
+                    <select
+                        id="add-department"
+                        v-model="form.department_id"
+                        class="h-10 rounded-md border px-3 text-sm"
+                    >
+                        <option value="">No home department (shared)</option>
+                        <option
+                            v-for="department in props.departments"
+                            :key="department.id"
+                            :value="department.id"
+                        >
+                            {{ departmentLabel(department) }}
+                        </option>
+                    </select>
+                    <p class="text-xs text-muted-foreground">
+                        Optional. Programs in any department can still mount
+                        this course at their own level.
+                    </p>
+                    <InputError :message="form.errors.department_id" />
+                </div>
                 <div class="grid gap-2">
                     <Label>Level</Label>
                     <select
@@ -402,6 +455,28 @@ const removeCourse = (course: Course) =>
                         Update this reusable catalogue course.
                     </DialogDescription>
                 </DialogHeader>
+                <div class="grid gap-2">
+                    <Label for="edit-department">Home department</Label>
+                    <select
+                        id="edit-department"
+                        v-model="editForm.department_id"
+                        class="h-10 rounded-md border px-3 text-sm"
+                    >
+                        <option value="">No home department (shared)</option>
+                        <option
+                            v-for="department in props.departments"
+                            :key="department.id"
+                            :value="department.id"
+                        >
+                            {{ departmentLabel(department) }}
+                        </option>
+                    </select>
+                    <p class="text-xs text-muted-foreground">
+                        Optional. Programs in any department can still mount
+                        this course at their own level.
+                    </p>
+                    <InputError :message="editForm.errors.department_id" />
+                </div>
                 <div class="grid gap-2">
                     <Label>Level</Label>
                     <select

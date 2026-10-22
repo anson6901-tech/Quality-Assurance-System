@@ -30,6 +30,7 @@ class CourseOfferingController extends Controller
             ->get();
 
         $courses = Course::query()
+            ->with('department:id,name')
             ->orderByRaw('(level + 0)')
             ->orderBy('code')
             ->get()
@@ -39,6 +40,7 @@ class CourseOfferingController extends Controller
                 'title' => $course->title,
                 'level' => $course->level,
                 'courseType' => $course->course_type,
+                'homeDepartment' => $course->department?->name,
             ]);
 
         $semesterIds = AcademicYear::query()->with('semesters')->get()
