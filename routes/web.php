@@ -4,6 +4,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Quality\AcademicYearController;
 use App\Http\Controllers\Quality\AuditLogController;
 use App\Http\Controllers\Quality\BulkStructureController;
+use App\Http\Controllers\Quality\BulkUploadController;
 use App\Http\Controllers\Quality\CourseAssignmentController;
 use App\Http\Controllers\Quality\CourseController;
 use App\Http\Controllers\Quality\CourseOfferingController;
@@ -45,6 +46,16 @@ Route::middleware(['auth', 'verified'])
         Route::get('approvals', [QualityReportController::class, 'approvals'])->name('reports.approvals');
         Route::get('print-queue', [QualityReportController::class, 'printQueue'])->name('reports.print-queue');
         Route::get('reports/create', [QualityReportController::class, 'create'])->name('reports.create');
+
+        Route::get('bulk-upload', [BulkUploadController::class, 'index'])->name('bulk-upload.index');
+        Route::get('bulk-upload/checklist', [BulkUploadController::class, 'checklist'])->name('bulk-upload.checklist');
+        Route::post('bulk-upload/batches', [BulkUploadController::class, 'store'])->name('bulk-upload.store');
+        Route::post('bulk-upload/batches/{batch}/files', [BulkUploadController::class, 'upload'])->name('bulk-upload.upload');
+        Route::post('bulk-upload/batches/{batch}/recheck', [BulkUploadController::class, 'recheck'])->name('bulk-upload.recheck');
+        Route::post('bulk-upload/batches/{batch}/drafts', [BulkUploadController::class, 'createDrafts'])->name('bulk-upload.drafts');
+        Route::post('bulk-upload/batches/{batch}/submit', [BulkUploadController::class, 'submit'])->name('bulk-upload.submit');
+        Route::patch('bulk-upload/batches/{batch}/items/{item}', [BulkUploadController::class, 'choose'])->name('bulk-upload.choose');
+        Route::delete('bulk-upload/batches/{batch}/items/{item}', [BulkUploadController::class, 'destroyItem'])->name('bulk-upload.destroy-item');
         Route::post('reports', [QualityReportController::class, 'store'])->name('reports.store');
         Route::post('reports/push-selected', [QualityReportController::class, 'pushSelected'])->name('reports.push-selected');
         Route::post('reports/forward-selected', [QualityReportController::class, 'forwardSelected'])->name('reports.forward-selected');

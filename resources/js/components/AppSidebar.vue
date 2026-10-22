@@ -5,6 +5,7 @@ import {
     CalendarRange,
     CheckCircle2,
     ClipboardList,
+    FolderUp,
     BookOpenCheck,
     BookMarked,
     GraduationCap,
@@ -70,6 +71,11 @@ const mainNavItems = computed<NavItem[]>(() => [
                   title: 'Upload Reports',
                   href: '/quality/reports/create',
                   icon: Upload,
+              },
+              {
+                  title: 'Bulk Upload',
+                  href: '/quality/bulk-upload',
+                  icon: FolderUp,
               },
           ]
         : []),
