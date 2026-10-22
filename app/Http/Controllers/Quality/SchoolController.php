@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Quality;
 
 use App\Http\Controllers\Controller;
 use App\Models\School;
-use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -19,11 +18,10 @@ class SchoolController extends Controller
 
         return Inertia::render('quality/schools/Index', [
             'schools' => School::query()
-                ->with('dean:id,name,email')
+                ->with('dean:id,name,email,school_id')
                 ->withCount(['departments', 'users', 'qualityReports'])
                 ->orderBy('name')
                 ->get(),
-            'deans' => User::query()->orderBy('name')->get(['id', 'name', 'email', 'school_id']),
         ]);
     }
 
@@ -33,10 +31,7 @@ class SchoolController extends Controller
 
         $validated = $this->validatedSchoolData($request);
 
-        School::create([
-            ...$validated,
-            'dean_id' => $validated['dean_id'] ?? null,
-        ]);
+        School::create($validated);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('School created.')]);
 
@@ -49,10 +44,7 @@ class SchoolController extends Controller
 
         $validated = $this->validatedSchoolData($request, $school);
 
-        $school->update([
-            ...$validated,
-            'dean_id' => $validated['dean_id'] ?? null,
-        ]);
+        $school->update($validated);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('School updated.')]);
 
@@ -78,7 +70,6 @@ class SchoolController extends Controller
         return $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('schools', 'name')->ignore($school)],
             'code' => ['required', 'string', 'max:20', Rule::unique('schools', 'code')->ignore($school)],
-            'dean_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
         ]);
     }
 }

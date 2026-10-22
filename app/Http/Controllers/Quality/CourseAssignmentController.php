@@ -10,6 +10,7 @@ use App\Models\Program;
 use App\Models\QualityRolePermission;
 use App\Models\Semester;
 use App\Models\User;
+use App\Support\Area;
 use App\Support\CourseBoard;
 use App\Support\CoursePartitions;
 use Illuminate\Http\JsonResponse;
@@ -284,10 +285,10 @@ class CourseAssignmentController extends Controller
             ->whereHas('offerings', fn ($query) => $query
                 ->where('semester_id', $semesterId)
                 ->when(
-                    ! $canManageStructure && ! $request->user()->canUploadQualityReports(),
+                    ! $request->user()->isPlacedAtUniversity(),
                     fn ($query) => $query->whereHas(
                         'program',
-                        fn ($query) => $query->where('department_id', $request->user()->department_id),
+                        fn ($query) => Area::programs($query, $request->user()),
                     ),
                 ))
             ->orderBy('code')
@@ -313,39 +314,35 @@ class CourseAssignmentController extends Controller
     }
 
     /**
-     * Heads of department may split or merge courses their department owns or only offers in its programs.
+     * Users placed below university level may split or merge only the parts of a course
+     * offered in their own area's programs.
      *
      * @param  Collection<int, array<string, mixed>>  $cells
      */
     private function authorizeCourse(User $user, Course $course, $cells): void
     {
-        if (
-            $user->canManageQualityStructure()
-            || ($course->department_id !== null && $course->department_id === $user->department_id)
-        ) {
-            return;
-        }
-
         $this->authorizeCells($user, $cells);
     }
 
     /**
-     * Heads of department may only change parts of courses in their own department's programs.
+     * Users placed below university level may only change parts of courses in their own
+     * area's programs.
      *
      * @param  Collection<int, array<string, mixed>>  $cells
      */
     private function authorizeCells(User $user, $cells): void
     {
-        if ($user->canManageQualityStructure()) {
+        if ($user->isPlacedAtUniversity()) {
             return;
         }
 
-        $programDepartments = Program::query()
-            ->whereIn('id', $cells->pluck('programId')->filter()->unique())
-            ->pluck('department_id');
+        $programIds = $cells->pluck('programId');
+        $allowed = Area::programs(Program::query(), $user)
+            ->whereIn('id', $programIds->filter()->unique())
+            ->count();
 
         abort_if(
-            $programDepartments->contains(fn ($departmentId) => $departmentId !== $user->department_id),
+            $programIds->contains(null) || $allowed !== $programIds->filter()->unique()->count(),
             403,
         );
     }

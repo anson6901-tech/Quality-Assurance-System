@@ -12,6 +12,7 @@ import {
     KeyRound,
     LayoutGrid,
     Layers3,
+    Network,
     ListPlus,
     LogOut,
     Printer,
@@ -126,10 +127,19 @@ const administrationNavItems = computed<NavItem[]>(() => [
     ...(page.props.qualityProfile?.canManageUsers
         ? [
               {
+                  title: 'Organizational Structure',
+                  href: '/quality/organization',
+                  icon: Network,
+              },
+              {
                   title: 'Users',
                   href: '/quality/users',
                   icon: Users,
               },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canManageRoles
+        ? [
               {
                   title: 'Roles',
                   href: '/quality/roles',

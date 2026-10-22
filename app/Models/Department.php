@@ -2,13 +2,16 @@
 
 namespace App\Models;
 
+use App\Enums\Placement;
+use App\Enums\UniversityRole;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['school_id', 'name', 'code', 'hod_id'])]
+#[Fillable(['school_id', 'name', 'code'])]
 class Department extends Model
 {
     use HasFactory;
@@ -22,11 +25,15 @@ class Department extends Model
     }
 
     /**
-     * @return BelongsTo<User, $this>
+     * The Head of Department is the user with the HOD role placed at this department.
+     *
+     * @return HasOne<User, $this>
      */
-    public function hod(): BelongsTo
+    public function hod(): HasOne
     {
-        return $this->belongsTo(User::class, 'hod_id');
+        return $this->hasOne(User::class)
+            ->where('university_role', UniversityRole::Hod->value)
+            ->where('placement', Placement::Department->value);
     }
 
     /**

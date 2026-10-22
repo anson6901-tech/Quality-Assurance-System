@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Concerns\HasTeams;
+use App\Enums\Placement;
 use App\Enums\UniversityRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -17,7 +18,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
-#[Fillable(['name', 'email', 'staff_id', 'password', 'must_change_password', 'email_verified_at', 'current_team_id', 'university_role', 'school_id', 'department_id', 'is_active'])]
+#[Fillable(['name', 'email', 'staff_id', 'password', 'must_change_password', 'email_verified_at', 'current_team_id', 'university_role', 'school_id', 'department_id', 'placement', 'is_active'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -37,6 +38,7 @@ class User extends Authenticatable
             'must_change_password' => 'boolean',
             'two_factor_confirmed_at' => 'datetime',
             'is_active' => 'boolean',
+            'placement' => Placement::class,
         ];
     }
 
@@ -97,9 +99,29 @@ class User extends Authenticatable
         return $this->university_role === UniversityRole::QaOfficer->value;
     }
 
+    public function isPlacedAtUniversity(): bool
+    {
+        return $this->placement === Placement::University;
+    }
+
+    /**
+     * Whether the role lets the user see every report in their placement area, rather
+     * than only their own.
+     */
+    public function canViewAreaReports(): bool
+    {
+        return $this->placement !== null
+            && QualityRolePermission::roleHas($this->university_role, 'view_area_reports');
+    }
+
+    /**
+     * Schools, departments, programs, the course catalogue and academic years are shared
+     * by the whole university, so only university-placed users may change them.
+     */
     public function canManageQualityStructure(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'manage_structure');
+        return $this->isPlacedAtUniversity()
+            && QualityRolePermission::roleHas($this->university_role, 'manage_structure');
     }
 
     public function canManageCourseAssignments(): bool
@@ -109,7 +131,17 @@ class User extends Authenticatable
 
     public function canManageUsers(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'manage_users');
+        return $this->placement !== null
+            && QualityRolePermission::roleHas($this->university_role, 'manage_users');
+    }
+
+    /**
+     * Roles and rights apply across the university, so only university-placed user managers
+     * may change them.
+     */
+    public function canManageRoles(): bool
+    {
+        return $this->isPlacedAtUniversity() && $this->canManageUsers();
     }
 
     public function canUploadQualityReports(): bool
@@ -150,7 +182,8 @@ class User extends Authenticatable
 
     public function canViewAuditLogs(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'view_audit_logs');
+        return $this->isPlacedAtUniversity()
+            && QualityRolePermission::roleHas($this->university_role, 'view_audit_logs');
     }
 
     /**
@@ -171,8 +204,11 @@ class User extends Authenticatable
                 'id' => $this->department->id,
                 'name' => $this->department->name,
             ] : null,
+            'placement' => $this->placement?->value,
+            'placementLabel' => $this->placementLabel(),
             'permissions' => $permissions,
             'canManageUsers' => $this->canManageUsers(),
+            'canManageRoles' => $this->canManageRoles(),
             'canManageQualityStructure' => $this->canManageQualityStructure(),
             'canManageCourseAssignments' => $this->canManageCourseAssignments(),
             'canViewReports' => $this->canViewQualityReports(),
@@ -183,5 +219,18 @@ class User extends Authenticatable
             'canViewPrintQueue' => $this->canViewPrintQueue(),
             'canViewAuditLogs' => $this->canViewAuditLogs(),
         ];
+    }
+
+    /**
+     * Human-readable position on the organizational structure, such as "Dept. of Nursing".
+     */
+    public function placementLabel(): string
+    {
+        return match ($this->placement) {
+            Placement::University => __('Whole university'),
+            Placement::School => $this->school?->name ?? __('School'),
+            Placement::Department => $this->department?->name ?? __('Department'),
+            null => __('Not placed'),
+        };
     }
 }

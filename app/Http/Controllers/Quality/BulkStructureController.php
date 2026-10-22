@@ -76,7 +76,7 @@ class BulkStructureController extends Controller
             ->mapWithKeys(fn ($column, $index) => [strtolower(trim((string) $column)) => $index]);
 
         foreach (self::COLUMNS[$type] as $requiredColumn) {
-            abort_unless($columns->has($requiredColumn), 422, __("Missing CSV column: :column", ['column' => $requiredColumn]));
+            abort_unless($columns->has($requiredColumn), 422, __('Missing CSV column: :column', ['column' => $requiredColumn]));
         }
 
         $imported = 0;

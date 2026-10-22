@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Actions\Teams\CreateTeam;
+use App\Enums\Placement;
 use App\Enums\UniversityRole;
 use App\Models\AcademicYear;
 use App\Models\Course;
@@ -226,16 +227,6 @@ class QualityDemoSeeder extends Seeder
             'inactiveLecturer' => $this->user('Former Lecturer', 'lecturer.inactive@qa.test', 'SON-1999', UniversityRole::Lecturer, $sonam, $department($sonam, 'NURS'), isActive: false),
         ];
 
-        $som->update(['dean_id' => $users['somDean']->id]);
-        $sonam->update(['dean_id' => $users['sonamDean']->id]);
-        $sph->update(['dean_id' => $users['sphDean']->id]);
-
-        $department($som, 'MBMB')->update(['hod_id' => $users['mbmbHod']->id]);
-        $department($som, 'PATH')->update(['hod_id' => $users['pathHod']->id]);
-        $department($sonam, 'NURS')->update(['hod_id' => $users['nursHod']->id]);
-        $department($sonam, 'MIDW')->update(['hod_id' => $users['midwHod']->id]);
-        $department($sph, 'EPBI')->update(['hod_id' => $users['epbiHod']->id]);
-
         return $users;
     }
 
@@ -259,6 +250,11 @@ class QualityDemoSeeder extends Seeder
                 'university_role' => $role->value,
                 'school_id' => $school?->id,
                 'department_id' => $department?->id,
+                'placement' => match (true) {
+                    $department !== null => Placement::Department,
+                    $school !== null => Placement::School,
+                    default => Placement::University,
+                },
                 'is_active' => $isActive,
             ],
         );

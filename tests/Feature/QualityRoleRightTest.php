@@ -43,7 +43,7 @@ it('repairs stale system role rows instead of showing duplicate roles', function
     QualityRolePermission::query()->create([
         'role' => UniversityRole::Dean->value,
         'label' => null,
-        'permissions' => ['view_school_reports'],
+        'permissions' => ['view_area_reports'],
         'is_system' => false,
     ]);
 
@@ -110,7 +110,7 @@ it('creates custom roles and allows users to be assigned to them', function () {
     $this->actingAs($admin)
         ->post('/quality/roles-rights', [
             'label' => 'Faculty QA Reviewer',
-            'permissions' => ['view_department_reports', 'view_print_queue'],
+            'permissions' => ['view_area_reports', 'view_print_queue'],
         ])
         ->assertRedirect('/quality/roles-rights');
 
@@ -121,13 +121,21 @@ it('creates custom roles and allows users to be assigned to them', function () {
             'name' => 'Reviewer User',
             'email' => 'reviewer@example.com',
             'university_role' => 'faculty_qa_reviewer',
-            'department_id' => $department->id,
             'password' => 'password',
             'password_confirmation' => 'password',
         ])
         ->assertRedirect('/quality/users');
 
     $reviewer = User::query()->where('email', 'reviewer@example.com')->first();
+
+    $this->actingAs($admin)
+        ->put("/quality/organization/placements/{$reviewer->id}", [
+            'placement' => 'department',
+            'department_id' => $department->id,
+        ])
+        ->assertRedirect('/quality/organization');
+
+    $reviewer->refresh();
 
     expect($reviewer?->university_role)->toBe('faculty_qa_reviewer')
         ->and($reviewer?->department_id)->toBe($department->id)

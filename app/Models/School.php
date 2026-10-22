@@ -2,23 +2,29 @@
 
 namespace App\Models;
 
+use App\Enums\Placement;
+use App\Enums\UniversityRole;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['name', 'code', 'dean_id'])]
+#[Fillable(['name', 'code'])]
 class School extends Model
 {
     use HasFactory;
 
     /**
-     * @return BelongsTo<User, $this>
+     * The Dean is the user with the Dean role placed at this school.
+     *
+     * @return HasOne<User, $this>
      */
-    public function dean(): BelongsTo
+    public function dean(): HasOne
     {
-        return $this->belongsTo(User::class, 'dean_id');
+        return $this->hasOne(User::class)
+            ->where('university_role', UniversityRole::Dean->value)
+            ->where('placement', Placement::School->value);
     }
 
     /**

@@ -795,7 +795,7 @@ it('scopes dean approval rights to reports for lecturers in their school', funct
         ['role' => UniversityRole::Dean->value],
         [
             'label' => UniversityRole::Dean->label(),
-            'permissions' => ['view_school_reports', 'view_print_queue', 'view_approval_queue', 'approve_reports'],
+            'permissions' => ['view_area_reports', 'view_print_queue', 'view_approval_queue', 'approve_reports'],
             'is_system' => true,
         ],
     );
@@ -918,7 +918,7 @@ it('does not show the internal approval queue to HODs', function () {
         ['role' => UniversityRole::Hod->value],
         [
             'label' => UniversityRole::Hod->label(),
-            'permissions' => ['view_school_reports', 'view_department_reports', 'view_approval_queue', 'view_print_queue'],
+            'permissions' => ['view_area_reports', 'view_approval_queue', 'view_print_queue'],
             'is_system' => true,
         ],
     );
@@ -1273,7 +1273,7 @@ it('only shows approved reports in the print queue', function () {
             ->where('reports.0.title', 'Approved for print'));
 });
 
-it('allows hods to see only their own approved reports in the print queue', function () {
+it('shows hods every approved report in the department they are placed in', function () {
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
     $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
     $academicYear = AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
@@ -1306,10 +1306,9 @@ it('allows hods to see only their own approved reports in the print queue', func
         ->get('/quality/print-queue')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->has('reports', 1)
-            ->where('reports.0.title', 'HOD approved report')
-            ->where('filters', [])
-            ->where('filterOptions', null));
+            ->has('reports', 2)
+            ->has('filterOptions.departments', 1)
+            ->where('filterOptions.departments.0.id', $department->id));
 });
 
 it('filters the print queue by lecturer academic year school and department', function () {
@@ -1433,9 +1432,8 @@ it('applies document role-based access to approved reports', function () {
         ->get('/quality/print-queue')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->has('reports', 0)
-            ->where('filters', [])
-            ->where('filterOptions', null));
+            ->has('reports', 1)
+            ->where('reports.0.title', 'Nursing approved report'));
 
     $this->actingAs($lecturer)
         ->get('/quality/print-queue')
@@ -1468,9 +1466,8 @@ it('applies document role-based access to approved reports', function () {
         ]))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->has('reports', 0)
-            ->where('filters', [])
-            ->where('filterOptions', null));
+            ->has('reports', 1)
+            ->where('reports.0.title', 'Nursing approved report'));
 });
 
 it('allows scoped users to download only their approved print queue reports', function () {
@@ -1553,7 +1550,7 @@ it('shows lecturers reports assigned directly or through their courses', functio
         ['role' => UniversityRole::Lecturer->value],
         [
             'label' => UniversityRole::Lecturer->label(),
-            'permissions' => ['view_own_reports', 'view_school_reports', 'view_department_reports', 'view_all_reports', 'view_print_queue'],
+            'permissions' => ['view_own_reports', 'view_print_queue'],
             'is_system' => true,
         ],
     );

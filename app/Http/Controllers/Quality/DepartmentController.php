@@ -20,7 +20,7 @@ class DepartmentController extends Controller
 
         return Inertia::render('quality/departments/Index', [
             'departments' => Department::query()
-                ->with(['school:id,name', 'hod:id,name,email'])
+                ->with(['school:id,name', 'hod:id,name,email,department_id'])
                 ->withCount(['users', 'qualityReports'])
                 ->join('schools', 'schools.id', '=', 'departments.school_id')
                 ->orderBy('schools.name')
@@ -28,7 +28,6 @@ class DepartmentController extends Controller
                 ->select('departments.*')
                 ->get(),
             'schools' => School::query()->orderBy('name')->get(['id', 'name']),
-            'hods' => User::query()->orderBy('name')->get(['id', 'name', 'email', 'school_id', 'department_id']),
         ]);
     }
 
@@ -38,10 +37,7 @@ class DepartmentController extends Controller
 
         $validated = $this->validatedDepartmentData($request);
 
-        Department::create([
-            ...$validated,
-            'hod_id' => $validated['hod_id'] ?? null,
-        ]);
+        Department::create($validated);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Department created.')]);
 
@@ -54,10 +50,12 @@ class DepartmentController extends Controller
 
         $validated = $this->validatedDepartmentData($request, $department);
 
-        $department->update([
-            ...$validated,
-            'hod_id' => $validated['hod_id'] ?? null,
-        ]);
+        $department->update($validated);
+
+        // People placed in a department follow it if it moves to another school.
+        User::query()
+            ->where('department_id', $department->id)
+            ->update(['school_id' => $department->school_id]);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Department updated.')]);
 
@@ -84,7 +82,6 @@ class DepartmentController extends Controller
             'school_id' => ['required', 'integer', Rule::exists('schools', 'id')],
             'name' => ['required', 'string', 'max:255'],
             'code' => ['required', 'string', 'max:20'],
-            'hod_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
         ]);
 
         $request->validate([

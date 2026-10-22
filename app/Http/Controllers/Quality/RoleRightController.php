@@ -16,14 +16,14 @@ class RoleRightController extends Controller
 {
     public function index(Request $request): RedirectResponse
     {
-        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($request->user()->canManageRoles(), 403);
 
         return to_route('quality.roles.index');
     }
 
     public function roles(Request $request): Response
     {
-        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($request->user()->canManageRoles(), 403);
 
         QualityRolePermission::ensureDefaults();
 
@@ -48,7 +48,7 @@ class RoleRightController extends Controller
 
     public function permissions(Request $request): Response
     {
-        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($request->user()->canManageRoles(), 403);
 
         QualityRolePermission::ensureDefaults();
 
@@ -66,7 +66,7 @@ class RoleRightController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($request->user()->canManageRoles(), 403);
 
         $validated = $request->validate([
             'label' => ['required', 'string', 'max:100'],
@@ -100,7 +100,7 @@ class RoleRightController extends Controller
 
     public function update(Request $request, string $role): RedirectResponse
     {
-        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($request->user()->canManageRoles(), 403);
 
         $validated = $request->validate([
             'role' => ['required', 'string', Rule::exists('quality_role_permissions', 'role')],
@@ -133,7 +133,7 @@ class RoleRightController extends Controller
 
     public function destroy(Request $request, string $role): RedirectResponse
     {
-        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($request->user()->canManageRoles(), 403);
         abort_if(UniversityRole::tryFrom($role), 409, __('System roles cannot be deleted.'));
 
         $roleRight = QualityRolePermission::query()
@@ -160,7 +160,7 @@ class RoleRightController extends Controller
 
     private function savePermissions(Request $request, string $role): void
     {
-        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($request->user()->canManageRoles(), 403);
 
         $validated = $request->validate([
             'role' => ['required', 'string', Rule::exists('quality_role_permissions', 'role')],

@@ -26,14 +26,8 @@ type SchoolRow = {
     quality_reports_count: number;
 };
 
-const props = defineProps<{
+defineProps<{
     schools: SchoolRow[];
-    deans: {
-        id: number;
-        name: string;
-        email: string;
-        school_id: number | null;
-    }[];
 }>();
 
 defineOptions({
@@ -50,12 +44,10 @@ defineOptions({
 const form = useForm({
     name: '',
     code: '',
-    dean_id: '',
 });
 const editForm = useForm({
     name: '',
     code: '',
-    dean_id: '',
 });
 const editingSchool = ref<SchoolRow | null>(null);
 const editOpen = ref(false);
@@ -74,7 +66,6 @@ const startEdit = (school: SchoolRow) => {
     editingSchool.value = school;
     editForm.name = school.name;
     editForm.code = school.code;
-    editForm.dean_id = school.dean ? String(school.dean.id) : '';
     editForm.clearErrors();
     editOpen.value = true;
 };
@@ -116,7 +107,7 @@ const deleteSchool = (school: SchoolRow) => {
         <section class="space-y-6">
             <PageBanner
                 title="Schools"
-                description="University schools used to scope dean access and QA reports"
+                description="University schools. Deans are placed on the Organizational Structure."
             >
                 <template #actions>
                     <div class="flex flex-wrap gap-2">
@@ -164,7 +155,10 @@ const deleteSchool = (school: SchoolRow) => {
                     </div>
                     <div>
                         <div class="font-medium">
-                            {{ school.dean?.name ?? 'Not assigned' }}
+                            {{
+                                school.dean?.name ??
+                                'Set on Organizational Structure'
+                            }}
                         </div>
                         <div class="text-muted-foreground">
                             {{ school.dean?.email }}
@@ -231,25 +225,6 @@ const deleteSchool = (school: SchoolRow) => {
                     <InputError :message="form.errors.code" />
                 </div>
 
-                <div class="grid gap-2">
-                    <Label for="dean">Dean</Label>
-                    <select
-                        id="dean"
-                        v-model="form.dean_id"
-                        class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
-                    >
-                        <option value="">Assign later</option>
-                        <option
-                            v-for="dean in deans"
-                            :key="dean.id"
-                            :value="dean.id"
-                        >
-                            {{ dean.name }} - {{ dean.email }}
-                        </option>
-                    </select>
-                    <InputError :message="form.errors.dean_id" />
-                </div>
-
                 <div class="flex justify-end gap-2">
                     <Button
                         type="button"
@@ -275,7 +250,8 @@ const deleteSchool = (school: SchoolRow) => {
                 <DialogHeader>
                     <DialogTitle>Edit school</DialogTitle>
                     <DialogDescription>
-                        Update the school name, code, or assigned dean.
+                        Update the school name or code. Deans are placed on the
+                        Organizational Structure.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -297,25 +273,6 @@ const deleteSchool = (school: SchoolRow) => {
                         required
                     />
                     <InputError :message="editForm.errors.code" />
-                </div>
-
-                <div class="grid gap-2">
-                    <Label for="edit-school-dean">Dean</Label>
-                    <select
-                        id="edit-school-dean"
-                        v-model="editForm.dean_id"
-                        class="h-9 rounded-md border px-3 text-sm"
-                    >
-                        <option value="">Not assigned</option>
-                        <option
-                            v-for="dean in props.deans"
-                            :key="dean.id"
-                            :value="dean.id"
-                        >
-                            {{ dean.name }} - {{ dean.email }}
-                        </option>
-                    </select>
-                    <InputError :message="editForm.errors.dean_id" />
                 </div>
 
                 <div class="flex justify-end gap-2 pt-2">

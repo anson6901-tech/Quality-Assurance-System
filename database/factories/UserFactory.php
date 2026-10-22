@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\Placement;
 use App\Enums\TeamRole;
 use App\Enums\UniversityRole;
 use App\Models\Team;
@@ -48,7 +49,13 @@ class UserFactory extends Factory
      */
     public function configure(): static
     {
-        return $this->afterCreating(function ($user) {
+        return $this->afterMaking(function (User $user): void {
+            $user->placement ??= match (true) {
+                $user->department_id !== null => Placement::Department,
+                $user->school_id !== null => Placement::School,
+                default => Placement::University,
+            };
+        })->afterCreating(function ($user) {
             $team = Team::factory()->personal()->create([
                 'name' => $user->name."'s Team",
             ]);

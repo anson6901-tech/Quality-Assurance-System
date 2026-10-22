@@ -3,8 +3,11 @@ export type QualityProfile = {
     roleLabel: string | null;
     school: { id: number; name: string } | null;
     department: { id: number; name: string } | null;
+    placement: 'university' | 'school' | 'department' | null;
+    placementLabel: string;
     permissions: string[];
     canManageUsers: boolean;
+    canManageRoles: boolean;
     canManageQualityStructure: boolean;
     canManageCourseAssignments: boolean;
     canViewReports: boolean;

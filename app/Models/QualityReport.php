@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\UniversityRole;
+use App\Support\Area;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -116,73 +116,46 @@ class QualityReport extends Model
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if (
-            $user->university_role === UniversityRole::IctAdmin->value
-            && QualityRolePermission::roleHas($user->university_role, 'view_all_reports')
-        ) {
+        $seesOwn = QualityRolePermission::roleHas($user->university_role, 'view_own_reports');
+
+        if ($user->canViewAreaReports() && $user->isPlacedAtUniversity()) {
             return $query;
         }
 
-        if (
-            in_array($user->university_role, [
-                UniversityRole::Hod->value,
-                UniversityRole::Lecturer->value,
-            ], true)
-            && QualityRolePermission::roleHas($user->university_role, 'view_own_reports')
-        ) {
-            return $query->where(function (Builder $query) use ($user): void {
-                $query
-                    ->where('lecturer_id', $user->id)
-                    ->orWhere(function (Builder $query) use ($user): void {
-                        $query
-                            ->whereNull('lecturer_id')
-                            ->whereHas('courses', fn (Builder $query) => $query
-                                ->whereHas('lecturers', fn (Builder $query) => $query->whereKey($user->id)));
-                    });
+        if ($user->canViewAreaReports()) {
+            return $query->where(function (Builder $query) use ($user, $seesOwn): void {
+                $query->where(fn (Builder $query) => Area::reports($query, $user));
+
+                if ($seesOwn) {
+                    $query->orWhere(fn (Builder $query) => self::ownedBy($query, $user));
+                }
             });
         }
 
-        if (QualityRolePermission::roleHas($user->university_role, 'view_department_reports')) {
-            return $query->where(function (Builder $query) use ($user): void {
-                $query
-                    ->whereHas('lecturer', fn (Builder $query) => $query->where('department_id', $user->department_id))
-                    ->orWhere(function (Builder $query) use ($user): void {
-                        $query
-                            ->whereNull('lecturer_id')
-                            ->where('department_id', $user->department_id);
-                    });
-            });
-        }
-
-        if (QualityRolePermission::roleHas($user->university_role, 'view_school_reports')) {
-            return $query->where(function (Builder $query) use ($user): void {
-                $query
-                    ->whereHas('lecturer', fn (Builder $query) => $query->where('school_id', $user->school_id))
-                    ->orWhere(function (Builder $query) use ($user): void {
-                        $query
-                            ->whereNull('lecturer_id')
-                            ->where('school_id', $user->school_id);
-                    });
-            });
-        }
-
-        if (QualityRolePermission::roleHas($user->university_role, 'view_all_reports')) {
-            return $query;
-        }
-
-        if (QualityRolePermission::roleHas($user->university_role, 'view_own_reports')) {
-            return $query->where(function (Builder $query) use ($user): void {
-                $query
-                    ->where('lecturer_id', $user->id)
-                    ->orWhere(function (Builder $query) use ($user): void {
-                        $query
-                            ->whereNull('lecturer_id')
-                            ->whereHas('courses', fn (Builder $query) => $query
-                                ->whereHas('lecturers', fn (Builder $query) => $query->whereKey($user->id)));
-                    });
-            });
+        if ($seesOwn) {
+            return self::ownedBy($query, $user);
         }
 
         return $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * Reports written about the lecturer, or about courses they teach when no lecturer is set.
+     *
+     * @param  Builder<QualityReport>  $query
+     * @return Builder<QualityReport>
+     */
+    private static function ownedBy(Builder $query, User $user): Builder
+    {
+        return $query->where(function (Builder $query) use ($user): void {
+            $query
+                ->where('lecturer_id', $user->id)
+                ->orWhere(function (Builder $query) use ($user): void {
+                    $query
+                        ->whereNull('lecturer_id')
+                        ->whereHas('courses', fn (Builder $query) => $query
+                            ->whereHas('lecturers', fn (Builder $query) => $query->whereKey($user->id)));
+                });
+        });
     }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import {
     CircleCheck,
     CircleOff,
@@ -11,7 +11,7 @@ import {
     Trash2,
     Upload,
 } from 'lucide-vue-next';
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import InputError from '@/components/InputError.vue';
 import PageBanner from '@/components/PageBanner.vue';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +37,8 @@ type UserRow = {
     roleLabel: string | null;
     school: { id: number; name: string } | null;
     department: { id: number; name: string } | null;
+    placement: 'university' | 'school' | 'department' | null;
+    placementLabel: string;
     isActive: boolean;
     isCurrentUser: boolean;
 };
@@ -47,17 +49,11 @@ type RoleOption = {
     permissions: string[];
 };
 
-type DepartmentOption = {
-    id: number;
-    name: string;
-    school: { id: number; name: string };
-};
-
 const props = defineProps<{
     users: UserRow[];
     roles: RoleOption[];
-    schools: Array<{ id: number; name: string }>;
-    departments: DepartmentOption[];
+    placesNewUsers: boolean;
+    actorPlacementLabel: string;
 }>();
 
 defineOptions({
@@ -77,8 +73,6 @@ const form = useForm({
     email: '',
     staff_id: '',
     university_role: 'lecturer',
-    school_id: '',
-    department_id: '',
     password: '',
     password_confirmation: '',
 });
@@ -89,8 +83,6 @@ const editForm = useForm({
     email: '',
     staff_id: '',
     university_role: 'lecturer',
-    school_id: '',
-    department_id: '',
 });
 
 const passwordForm = useForm({
@@ -101,39 +93,15 @@ const importForm = useForm({
     users_file: null as File | null,
 });
 
+// Placement rules (one Dean per school, one HOD per department) are reported under a
+// key that is not one of the form fields.
+const placementError = (errors: object) =>
+    (errors as Record<string, string | undefined>).placement;
+
 const mode = ref<'create' | 'edit' | 'password'>('create');
 const createOpen = ref(false);
 const bulkOpen = ref(false);
 const selectedUser = ref<UserRow | null>(null);
-
-const selectedRole = computed(() =>
-    props.roles.find((role) => role.value === form.university_role),
-);
-
-const selectedEditRole = computed(() =>
-    props.roles.find((role) => role.value === editForm.university_role),
-);
-
-const roleNeedsSchool = (role?: RoleOption) =>
-    role?.permissions.includes('view_school_reports');
-
-const roleNeedsDepartment = (role?: RoleOption) =>
-    role?.value === 'lecturer' ||
-    role?.permissions.some((permission) =>
-        ['view_department_reports', 'manage_course_assignments'].includes(
-            permission,
-        ),
-    );
-
-const needsSchool = computed(() => roleNeedsSchool(selectedRole.value));
-const needsDepartment = computed(() => roleNeedsDepartment(selectedRole.value));
-const editNeedsSchool = computed(() => roleNeedsSchool(selectedEditRole.value));
-const editNeedsDepartment = computed(() =>
-    roleNeedsDepartment(selectedEditRole.value),
-);
-
-const normalizeId = (value: number | undefined) =>
-    value === undefined ? '' : String(value);
 
 const showCreate = () => {
     mode.value = 'create';
@@ -160,8 +128,6 @@ const startEdit = (user: UserRow) => {
     editForm.email = user.email;
     editForm.staff_id = user.staffId ?? '';
     editForm.university_role = user.role ?? 'lecturer';
-    editForm.school_id = normalizeId(user.school?.id);
-    editForm.department_id = normalizeId(user.department?.id);
 };
 
 const startPasswordReset = (user: UserRow) => {
@@ -278,19 +244,18 @@ const deleteUser = (user: UserRow) => {
                 class="overflow-hidden rounded-xl border border-[#9fd8b8] bg-white shadow-sm ring-1 ring-[#007a2f]/10"
             >
                 <div
-                    class="grid grid-cols-[1fr_150px_1fr_1fr_160px] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
+                    class="grid grid-cols-[1fr_150px_1fr_160px] gap-4 border-b border-[#9fd8b8] bg-[#e8f6ee] px-4 py-3 text-sm font-bold text-[#063f22]"
                 >
                     <span>User</span>
                     <span>Role</span>
-                    <span>School</span>
-                    <span>Department</span>
+                    <span>Placement</span>
                     <span>Actions</span>
                 </div>
 
                 <div
                     v-for="user in users"
                     :key="user.id"
-                    class="grid grid-cols-[1fr_150px_1fr_1fr_160px] gap-4 border-b px-4 py-4 text-sm last:border-b-0"
+                    class="grid grid-cols-[1fr_150px_1fr_160px] gap-4 border-b px-4 py-4 text-sm last:border-b-0"
                 >
                     <div>
                         <div class="font-medium">{{ user.name }}</div>
@@ -318,8 +283,30 @@ const deleteUser = (user: UserRow) => {
                             </Badge>
                         </div>
                     </div>
-                    <span>{{ user.school?.name ?? 'All schools' }}</span>
-                    <span>{{ user.department?.name ?? 'Not assigned' }}</span>
+                    <div>
+                        <div
+                            :class="
+                                user.placement
+                                    ? 'text-[#1d2f37]'
+                                    : 'font-medium text-[#8a5a12]'
+                            "
+                        >
+                            {{ user.placementLabel }}
+                        </div>
+                        <div
+                            v-if="user.placement === 'department'"
+                            class="text-xs text-muted-foreground"
+                        >
+                            {{ user.school?.name }}
+                        </div>
+                        <Link
+                            v-if="!user.placement"
+                            href="/quality/organization"
+                            class="text-xs text-[#007a2f] underline"
+                        >
+                            Place on structure
+                        </Link>
+                    </div>
                     <div class="flex flex-wrap gap-2">
                         <Button
                             type="button"
@@ -438,10 +425,6 @@ const deleteUser = (user: UserRow) => {
                             v-model="form.university_role"
                             class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
                             required
-                            @change="
-                                form.school_id = '';
-                                form.department_id = '';
-                            "
                         >
                             <option
                                 v-for="role in roles"
@@ -454,46 +437,16 @@ const deleteUser = (user: UserRow) => {
                         <InputError :message="form.errors.university_role" />
                     </div>
 
-                    <div v-if="needsSchool" class="grid gap-2">
-                        <Label for="school">School scope</Label>
-                        <select
-                            id="school"
-                            v-model="form.school_id"
-                            class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
-                            required
-                        >
-                            <option value="" disabled>Select school</option>
-                            <option
-                                v-for="school in schools"
-                                :key="school.id"
-                                :value="school.id"
-                            >
-                                {{ school.name }}
-                            </option>
-                        </select>
-                        <InputError :message="form.errors.school_id" />
-                    </div>
-
-                    <div v-if="needsDepartment" class="grid gap-2">
-                        <Label for="department">Department scope</Label>
-                        <select
-                            id="department"
-                            v-model="form.department_id"
-                            class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
-                            required
-                        >
-                            <option value="" disabled>Select department</option>
-                            <option
-                                v-for="department in departments"
-                                :key="department.id"
-                                :value="department.id"
-                            >
-                                {{ department.name }} -
-                                {{ department.school.name }}
-                            </option>
-                        </select>
-                        <InputError :message="form.errors.department_id" />
-                    </div>
+                    <p
+                        class="rounded-md bg-[#edf9f2] px-3 py-2 text-xs leading-5 text-[#3c5059]"
+                    >
+                        {{
+                            placesNewUsers
+                                ? `New users join ${actorPlacementLabel}.`
+                                : 'New users start unplaced. Place them on the Organizational Structure to decide what they can see.'
+                        }}
+                    </p>
+                    <InputError :message="placementError(form.errors)" />
 
                     <div class="grid gap-2">
                         <Label for="password">Password</Label>
@@ -546,9 +499,10 @@ const deleteUser = (user: UserRow) => {
                     <DialogHeader>
                         <DialogTitle>Import users</DialogTitle>
                         <DialogDescription>
-                            Download the system template first. It contains
-                            valid school and department codes and the exact
-                            columns required by the importer.
+                            Download the system template first. School and
+                            department codes place each user on the
+                            Organizational Structure; leave them blank to place
+                            users later.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -681,10 +635,6 @@ const deleteUser = (user: UserRow) => {
                             v-model="editForm.university_role"
                             class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
                             required
-                            @change="
-                                editForm.school_id = '';
-                                editForm.department_id = '';
-                            "
                         >
                             <option
                                 v-for="role in roles"
@@ -699,46 +649,16 @@ const deleteUser = (user: UserRow) => {
                         />
                     </div>
 
-                    <div v-if="editNeedsSchool" class="grid gap-2">
-                        <Label for="edit-school">School scope</Label>
-                        <select
-                            id="edit-school"
-                            v-model="editForm.school_id"
-                            class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
-                            required
-                        >
-                            <option value="" disabled>Select school</option>
-                            <option
-                                v-for="school in schools"
-                                :key="school.id"
-                                :value="school.id"
-                            >
-                                {{ school.name }}
-                            </option>
-                        </select>
-                        <InputError :message="editForm.errors.school_id" />
-                    </div>
-
-                    <div v-if="editNeedsDepartment" class="grid gap-2">
-                        <Label for="edit-department">Department scope</Label>
-                        <select
-                            id="edit-department"
-                            v-model="editForm.department_id"
-                            class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
-                            required
-                        >
-                            <option value="" disabled>Select department</option>
-                            <option
-                                v-for="department in departments"
-                                :key="department.id"
-                                :value="department.id"
-                            >
-                                {{ department.name }} -
-                                {{ department.school.name }}
-                            </option>
-                        </select>
-                        <InputError :message="editForm.errors.department_id" />
-                    </div>
+                    <InputError :message="placementError(editForm.errors)" />
+                    <p class="text-xs text-muted-foreground">
+                        Placement: {{ selectedUser?.placementLabel }}. Change it
+                        on the
+                        <Link
+                            href="/quality/organization"
+                            class="text-[#007a2f] underline"
+                            >Organizational Structure</Link
+                        >.
+                    </p>
 
                     <div class="flex justify-end gap-2 pt-2">
                         <Button

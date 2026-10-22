@@ -10,6 +10,7 @@ use App\Http\Controllers\Quality\CourseOfferingController;
 use App\Http\Controllers\Quality\CourseSearchController;
 use App\Http\Controllers\Quality\DepartmentController;
 use App\Http\Controllers\Quality\MyCourseController;
+use App\Http\Controllers\Quality\OrganizationController;
 use App\Http\Controllers\Quality\ProgramController;
 use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\RoleRightController;
@@ -101,6 +102,10 @@ Route::middleware(['auth', 'verified'])
         Route::patch('users/{user}/password', [UserController::class, 'resetPassword'])->name('users.password');
         Route::patch('users/{user}/status', [UserController::class, 'updateStatus'])->name('users.status');
         Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+
+        Route::get('organization', [OrganizationController::class, 'index'])->name('organization.index');
+        Route::put('organization/placements/{user}', [OrganizationController::class, 'place'])->name('organization.place');
+        Route::delete('organization/placements/{user}', [OrganizationController::class, 'remove'])->name('organization.remove');
 
         Route::get('roles-rights', [RoleRightController::class, 'index'])->name('roles-rights.index');
         Route::post('roles-rights', [RoleRightController::class, 'store'])->name('roles-rights.store');

@@ -9,6 +9,7 @@ use App\Models\CourseOffering;
 use App\Models\Program;
 use App\Models\QualityReport;
 use App\Models\User;
+use App\Support\Area;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -243,11 +244,7 @@ class CourseOfferingController extends Controller
 
     private function programsFor(User $user)
     {
-        return Program::query()
-            ->when(
-                ! $user->canManageQualityStructure(),
-                fn ($query) => $query->where('department_id', $user->department_id),
-            );
+        return Area::programs(Program::query(), $user);
     }
 
     private function findAllowedProgram(User $user, int $programId): Program

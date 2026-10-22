@@ -16,6 +16,7 @@ use App\Models\School;
 use App\Models\Section;
 use App\Models\Semester;
 use App\Models\User;
+use App\Support\Area;
 use App\Support\CourseBoard;
 use App\Support\CoursePartitions;
 use Illuminate\Http\RedirectResponse;
@@ -62,7 +63,7 @@ class QualityReportController extends Controller
                 'canReviewReports' => true,
                 'canApproveReports' => false,
                 'filters' => $filters,
-                'filterOptions' => $this->reportFilterOptions(),
+                'filterOptions' => $this->reportFilterOptions($request->user()),
             ]);
         }
 
@@ -87,7 +88,7 @@ class QualityReportController extends Controller
             'canReviewReports' => false,
             'canApproveReports' => false,
             'filters' => $filters,
-            'filterOptions' => $this->reportFilterOptions(includeStatuses: true),
+            'filterOptions' => $this->reportFilterOptions($request->user(), includeStatuses: true),
         ]);
     }
 
@@ -117,7 +118,7 @@ class QualityReportController extends Controller
             'canReviewReports' => false,
             'canApproveReports' => $this->canApproveReports($request),
             'filters' => $filters,
-            'filterOptions' => $this->reportFilterOptions(),
+            'filterOptions' => $this->reportFilterOptions($request->user()),
         ]);
     }
 
@@ -148,7 +149,7 @@ class QualityReportController extends Controller
             'canReviewReports' => false,
             'canApproveReports' => false,
             'filters' => $filters,
-            'filterOptions' => $canFilterReports ? $this->reportFilterOptions() : null,
+            'filterOptions' => $canFilterReports ? $this->reportFilterOptions($request->user()) : null,
         ]);
     }
 
@@ -182,6 +183,7 @@ class QualityReportController extends Controller
                 ->with('reviews:id,quality_report_id,action,created_at')
                 ->latest()])
             ->whereHas('offerings', fn ($query) => $query->whereIn('semester_id', $semesterIds))
+            ->tap(fn ($query) => Area::courses($query, $request->user()))
             ->orderBy('code')
             ->get();
 
@@ -218,6 +220,7 @@ class QualityReportController extends Controller
         ))->values();
 
         $departments = Department::query()
+            ->tap(fn ($query) => Area::departments($query, $request->user()))
             ->orderBy('name')
             ->get(['id', 'name']);
 
@@ -384,6 +387,12 @@ class QualityReportController extends Controller
 
                 $department = $program?->department
                     ?? Department::query()->with('school:id')->findOrFail($departmentId);
+
+                if (! Area::departments(Department::query(), $request->user())->whereKey($department->id)->exists()) {
+                    throw ValidationException::withMessages([
+                        'program_id' => __('You can only upload reports for programs in your own area.'),
+                    ]);
+                }
 
                 $filePath = $request->file('report_file')?->store('quality-reports', 'public');
                 if ($filePath !== null) {
@@ -991,15 +1000,7 @@ class QualityReportController extends Controller
 
     private function canFilterReports(Request $request): bool
     {
-        $role = $request->user()->university_role;
-
-        if (in_array($role, [UniversityRole::Hod->value, UniversityRole::Lecturer->value], true)) {
-            return false;
-        }
-
-        return QualityRolePermission::roleHas($role, 'view_all_reports')
-            || QualityRolePermission::roleHas($role, 'view_department_reports')
-            || QualityRolePermission::roleHas($role, 'view_school_reports');
+        return $request->user()->canViewAreaReports();
     }
 
     private function approvalScopedReportExists(Request $request, QualityReport $report): bool
@@ -1069,45 +1070,18 @@ class QualityReportController extends Controller
 
     private function applyApprovalScope($query, User $user): void
     {
-        if (QualityRolePermission::roleHas($user->university_role, 'view_all_reports')) {
-            return;
-        }
-
-        if (QualityRolePermission::roleHas($user->university_role, 'view_department_reports')) {
-            $query->where(function ($query) use ($user): void {
-                $query
-                    ->whereHas('lecturer', fn ($query) => $query->where('department_id', $user->department_id))
-                    ->orWhere(function ($query) use ($user): void {
-                        $query
-                            ->whereNull('lecturer_id')
-                            ->where('department_id', $user->department_id);
-                    });
-            });
-
-            return;
-        }
-
-        if (QualityRolePermission::roleHas($user->university_role, 'view_school_reports')) {
-            $query->where(function ($query) use ($user): void {
-                $query
-                    ->whereHas('lecturer', fn ($query) => $query->where('school_id', $user->school_id))
-                    ->orWhere(function ($query) use ($user): void {
-                        $query
-                            ->whereNull('lecturer_id')
-                            ->where('school_id', $user->school_id);
-                    });
-            });
-        }
+        Area::reports($query, $user);
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function reportFilterOptions(bool $includeStatuses = false): array
+    private function reportFilterOptions(User $user, bool $includeStatuses = false): array
     {
         $options = [
             'lecturers' => User::query()
                 ->whereIn('university_role', QualityRolePermission::rolesWith('view_own_reports'))
+                ->tap(fn ($query) => Area::users($query, $user))
                 ->orderBy('name')
                 ->get(['id', 'name'])
                 ->map(fn (User $lecturer) => [
@@ -1133,6 +1107,7 @@ class QualityReportController extends Controller
                     'name' => $semester->name,
                 ]),
             'schools' => School::query()
+                ->tap(fn ($query) => Area::schools($query, $user))
                 ->orderBy('name')
                 ->get(['id', 'name'])
                 ->map(fn (School $school) => [
@@ -1140,6 +1115,7 @@ class QualityReportController extends Controller
                     'name' => $school->name,
                 ]),
             'departments' => Department::query()
+                ->tap(fn ($query) => Area::departments($query, $user))
                 ->orderBy('name')
                 ->get(['id', 'school_id', 'name'])
                 ->map(fn (Department $department) => [
@@ -1148,6 +1124,7 @@ class QualityReportController extends Controller
                     'name' => $department->name,
                 ]),
             'programs' => Program::query()
+                ->tap(fn ($query) => Area::programs($query, $user))
                 ->orderBy('name')
                 ->get(['id', 'department_id', 'name', 'code'])
                 ->map(fn (Program $program) => [

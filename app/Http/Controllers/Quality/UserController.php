@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Quality;
 
 use App\Actions\Teams\CreateTeam;
+use App\Enums\Placement;
 use App\Enums\UniversityRole;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\QualityRolePermission;
 use App\Models\School;
 use App\Models\User;
+use App\Support\Area;
+use App\Support\Placements;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +19,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -28,9 +32,10 @@ class UserController extends Controller
 
         return Inertia::render('quality/users/Index', [
             'users' => User::query()
+                ->tap(fn ($query) => Area::users($query, $request->user()))
                 ->with(['school:id,name', 'department:id,school_id,name', 'department.school:id,name'])
                 ->latest()
-                ->get(['id', 'name', 'email', 'staff_id', 'university_role', 'school_id', 'department_id', 'is_active', 'created_at'])
+                ->get(['id', 'name', 'email', 'staff_id', 'university_role', 'school_id', 'department_id', 'placement', 'is_active', 'created_at'])
                 ->map(function (User $user) use ($request): array {
                     $school = $user->school ?? $user->department?->school;
                     [$firstName, $lastName] = $this->splitName($user->name);
@@ -46,18 +51,15 @@ class UserController extends Controller
                         'roleLabel' => QualityRolePermission::labelFor($user->university_role),
                         'school' => $school ? ['id' => $school->id, 'name' => $school->name] : null,
                         'department' => $user->department ? ['id' => $user->department->id, 'name' => $user->department->name] : null,
+                        'placement' => $user->placement?->value,
+                        'placementLabel' => $user->placementLabel(),
                         'isActive' => $user->is_active,
                         'isCurrentUser' => $user->is($request->user()),
                     ];
                 }),
             'roles' => QualityRolePermission::roleOptions(),
-            'schools' => School::query()
-                ->orderBy('name')
-                ->get(['id', 'name']),
-            'departments' => Department::query()
-                ->with('school:id,name')
-                ->orderBy('name')
-                ->get(['id', 'school_id', 'name']),
+            'placesNewUsers' => ! $request->user()->isPlacedAtUniversity(),
+            'actorPlacementLabel' => $request->user()->placementLabel(),
         ]);
     }
 
@@ -65,7 +67,9 @@ class UserController extends Controller
     {
         abort_unless($request->user()->canManageUsers(), 403);
 
-        [$validated, $schoolId, $departmentId] = $this->validatedUserData($request);
+        $validated = $this->validatedUserData($request);
+        $target = $this->defaultPlacementFor($request->user());
+        Placements::ensureHeadRules($validated['university_role'], $target);
 
         $user = User::create([
             'name' => $validated['name'],
@@ -75,13 +79,16 @@ class UserController extends Controller
             'must_change_password' => true,
             'email_verified_at' => now(),
             'university_role' => $validated['university_role'],
-            'school_id' => $schoolId,
-            'department_id' => $departmentId,
+            'school_id' => $target['school_id'],
+            'department_id' => $target['department_id'],
+            'placement' => $target['placement'],
         ]);
 
         app(CreateTeam::class)->handle($user, "{$user->name}'s Team", true);
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('User created.')]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => $target['placement'] === null
+            ? __('User created. Place them on the Organizational Structure to give them access.')
+            : __('User created.')]);
 
         return to_route('quality.users.index');
     }
@@ -152,7 +159,7 @@ class UserController extends Controller
         ];
 
         foreach ($requiredColumns as $requiredColumn) {
-            abort_unless($columns->has($requiredColumn), 422, __("Missing CSV column: :column", ['column' => $requiredColumn]));
+            abort_unless($columns->has($requiredColumn), 422, __('Missing CSV column: :column', ['column' => $requiredColumn]));
         }
 
         $imported = 0;
@@ -189,6 +196,7 @@ class UserController extends Controller
 
             if ($validator->fails()) {
                 $skipped++;
+
                 continue;
             }
 
@@ -201,25 +209,29 @@ class UserController extends Controller
                     ->when($school, fn ($query) => $query->where('school_id', $school->id))
                     ->first()
                 : null;
-            $permissions = QualityRolePermission::permissionsFor($data['university_role']);
-            $needsSchool = in_array('view_school_reports', $permissions, true);
-            $needsDepartment = $data['university_role'] === UniversityRole::Lecturer->value
-                || array_intersect($permissions, ['view_department_reports', 'manage_course_assignments']);
-
             if (
                 ($data['school_code'] !== '' && ! $school)
                 || ($data['department_code'] !== '' && ! $department)
-                ||
-                ($needsSchool && ! $school)
-                || ($needsDepartment && ! $department)
                 || ($school && $department && $school->id !== $department->school_id)
             ) {
                 $skipped++;
+
                 continue;
             }
 
-            if ($department) {
-                $school = $department->school;
+            $target = match (true) {
+                $department !== null => Placements::resolve(Placement::Department, null, $department->id),
+                $school !== null => Placements::resolve(Placement::School, $school->id, null),
+                default => $this->defaultPlacementFor($request->user()),
+            };
+
+            if (
+                ($target['placement'] !== null && ! Area::contains($request->user(), $target['placement'], $target['school_id'], $target['department_id']))
+                || ! $this->passesHeadRules($data['university_role'], $target)
+            ) {
+                $skipped++;
+
+                continue;
             }
 
             $user = User::create([
@@ -230,8 +242,9 @@ class UserController extends Controller
                 'must_change_password' => true,
                 'email_verified_at' => now(),
                 'university_role' => $data['university_role'],
-                'school_id' => $school?->id,
-                'department_id' => $department?->id,
+                'school_id' => $target['school_id'],
+                'department_id' => $target['department_id'],
+                'placement' => $target['placement'],
             ]);
 
             app(CreateTeam::class)->handle($user, "{$user->name}'s Team", true);
@@ -255,15 +268,19 @@ class UserController extends Controller
     {
         abort_unless($request->user()->canManageUsers(), 403);
 
-        [$validated, $schoolId, $departmentId] = $this->validatedUserData($request, $user);
+        $this->authorizeTarget($request, $user);
+        $validated = $this->validatedUserData($request, $user);
+        Placements::ensureHeadRules($validated['university_role'], [
+            'placement' => $user->placement,
+            'school_id' => $user->school_id,
+            'department_id' => $user->department_id,
+        ], $user);
 
         $user->forceFill([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'staff_id' => $validated['staff_id'] ?? null,
             'university_role' => $validated['university_role'],
-            'school_id' => $schoolId,
-            'department_id' => $departmentId,
         ])->save();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('User updated.')]);
@@ -274,6 +291,7 @@ class UserController extends Controller
     public function resetPassword(Request $request, User $user): RedirectResponse
     {
         abort_unless($request->user()->canManageUsers(), 403);
+        $this->authorizeTarget($request, $user);
 
         $validated = $request->validate([
             'password' => ['required', 'confirmed', Password::defaults()],
@@ -292,6 +310,7 @@ class UserController extends Controller
     public function updateStatus(Request $request, User $user): RedirectResponse
     {
         abort_unless($request->user()->canManageUsers(), 403);
+        $this->authorizeTarget($request, $user);
         abort_if($user->is($request->user()), 422, __('You cannot deactivate your own account.'));
 
         $validated = $request->validate([
@@ -315,6 +334,7 @@ class UserController extends Controller
     public function destroy(Request $request, User $user): RedirectResponse
     {
         abort_unless($request->user()->canManageUsers(), 403);
+        $this->authorizeTarget($request, $user);
         abort_if($user->is($request->user()), 422, __('You cannot delete your own account.'));
 
         $user->delete();
@@ -325,7 +345,7 @@ class UserController extends Controller
     }
 
     /**
-     * @return array{0: array<string, mixed>, 1: int|null, 2: int|null}
+     * @return array<string, mixed>
      */
     private function validatedUserData(Request $request, ?User $user = null): array
     {
@@ -347,8 +367,6 @@ class UserController extends Controller
                 Rule::unique('users', 'staff_id')->ignore($user),
             ],
             'university_role' => ['required', 'string', Rule::in(array_column(QualityRolePermission::roleOptions(), 'value'))],
-            'school_id' => ['nullable', 'integer', Rule::exists('schools', 'id')],
-            'department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')],
             'password' => [$user ? 'sometimes' : 'required', 'confirmed', Password::defaults()],
         ]);
 
@@ -357,38 +375,42 @@ class UserController extends Controller
             ? trim(($validated['first_name'] ?? '').' '.($validated['last_name'] ?? ''))
             : $validated['name'];
 
-        $role = $validated['university_role'];
-        $permissions = QualityRolePermission::permissionsFor($role);
-        $schoolId = isset($validated['school_id']) ? (int) $validated['school_id'] : null;
-        $departmentId = isset($validated['department_id']) ? (int) $validated['department_id'] : null;
+        return $validated;
+    }
 
-        if (in_array('view_school_reports', $permissions, true)) {
-            $request->validate([
-                'school_id' => ['required', 'integer', Rule::exists('schools', 'id')],
-            ]);
-
-            $schoolId = (int) $validated['school_id'];
+    /**
+     * @param  array{placement: Placement|null, school_id: int|null, department_id: int|null}  $target
+     */
+    private function passesHeadRules(string $role, array $target): bool
+    {
+        try {
+            Placements::ensureHeadRules($role, $target);
+        } catch (ValidationException) {
+            return false;
         }
 
-        $needsDepartment = $role === UniversityRole::Lecturer->value
-            || array_intersect($permissions, ['view_department_reports', 'manage_course_assignments']);
+        return true;
+    }
 
-        if ($needsDepartment) {
-            $request->validate([
-                'department_id' => ['required', 'integer', Rule::exists('departments', 'id')],
-            ]);
+    /**
+     * User managers placed below university level only manage users in their own area.
+     */
+    private function authorizeTarget(Request $request, User $user): void
+    {
+        abort_unless(Area::users(User::query(), $request->user())->whereKey($user->id)->exists(), 403);
+    }
 
-            $department = Department::findOrFail($validated['department_id']);
-            $schoolId = $department->school_id;
-            $departmentId = $department->id;
-        }
-
-        if ($departmentId && ! $needsDepartment) {
-            $department = Department::findOrFail($departmentId);
-            $schoolId = $department->school_id;
-        }
-
-        return [$validated, $schoolId, $departmentId];
+    /**
+     * New users start unplaced when a university admin creates them (they are then placed on
+     * the organizational structure); otherwise they join the creator's own unit.
+     *
+     * @return array{placement: Placement|null, school_id: int|null, department_id: int|null}
+     */
+    private function defaultPlacementFor(User $actor): array
+    {
+        return $actor->isPlacedAtUniversity()
+            ? Placements::resolve(null, null, null)
+            : Placements::resolve($actor->placement, $actor->school_id, $actor->department_id);
     }
 
     /**

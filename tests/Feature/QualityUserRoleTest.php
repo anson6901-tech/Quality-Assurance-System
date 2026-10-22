@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Placement;
 use App\Enums\UniversityRole;
 use App\Models\Department;
 use App\Models\School;
@@ -22,14 +23,9 @@ it('shows document roles on the user management page', function () {
             ->where('roles.7.value', UniversityRole::AppointmentCommittee->value));
 });
 
-it('creates dean hod and appointment committee users with the correct scope', function () {
+it('creates users unplaced so they are positioned on the organizational structure', function () {
     $admin = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
-    $department = Department::create([
-        'school_id' => $school->id,
-        'name' => 'Nursing',
-        'code' => 'NURS',
-    ]);
 
     $this->actingAs($admin)
         ->post('/quality/users', [
@@ -42,41 +38,13 @@ it('creates dean hod and appointment committee users with the correct scope', fu
         ])
         ->assertRedirect('/quality/users');
 
-    $this->actingAs($admin)
-        ->post('/quality/users', [
-            'name' => 'HOD User',
-            'email' => 'hod@example.com',
-            'university_role' => UniversityRole::Hod->value,
-            'department_id' => $department->id,
-            'password' => 'password',
-            'password_confirmation' => 'password',
-        ])
-        ->assertRedirect('/quality/users');
-
-    $this->actingAs($admin)
-        ->post('/quality/users', [
-            'name' => 'Committee User',
-            'email' => 'committee@example.com',
-            'university_role' => UniversityRole::AppointmentCommittee->value,
-            'password' => 'password',
-            'password_confirmation' => 'password',
-        ])
-        ->assertRedirect('/quality/users');
-
     expect(User::where('email', 'dean@example.com')->first())
-        ->school_id->toBe($school->id)
-        ->department_id->toBeNull();
-
-    expect(User::where('email', 'hod@example.com')->first())
-        ->school_id->toBe($school->id)
-        ->department_id->toBe($department->id);
-
-    expect(User::where('email', 'committee@example.com')->first())
+        ->placement->toBeNull()
         ->school_id->toBeNull()
         ->department_id->toBeNull();
 });
 
-it('updates users with role based scope', function () {
+it('updates a user role without changing their placement', function () {
     $admin = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
     $department = Department::create([
@@ -88,6 +56,8 @@ it('updates users with role based scope', function () {
         'name' => 'Old User',
         'email' => 'old@example.com',
         'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
     ]);
 
     $this->actingAs($admin)
@@ -95,7 +65,6 @@ it('updates users with role based scope', function () {
             'name' => 'Edited User',
             'email' => 'edited@example.com',
             'university_role' => UniversityRole::Hod->value,
-            'department_id' => $department->id,
         ])
         ->assertRedirect('/quality/users');
 
@@ -104,41 +73,46 @@ it('updates users with role based scope', function () {
     expect($user->name)->toBe('Edited User')
         ->and($user->email)->toBe('edited@example.com')
         ->and($user->university_role)->toBe(UniversityRole::Hod->value)
-        ->and($user->school_id)->toBe($school->id)
+        ->and($user->placement)->toBe(Placement::Department)
         ->and($user->department_id)->toBe($department->id);
 });
 
-it('requires and stores a department when creating a lecturer', function () {
+it('blocks a role change that breaks the one-head-per-unit rule', function () {
     $admin = User::factory()->create(['university_role' => UniversityRole::IctAdmin]);
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
-    $department = Department::create([
+    $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
+    User::factory()->create([
+        'university_role' => UniversityRole::Hod,
         'school_id' => $school->id,
-        'name' => 'Nursing',
-        'code' => 'NURS',
+        'department_id' => $department->id,
+    ]);
+    $lecturer = User::factory()->create([
+        'university_role' => UniversityRole::Lecturer,
+        'school_id' => $school->id,
+        'department_id' => $department->id,
+    ]);
+    $schoolOfficer = User::factory()->create([
+        'university_role' => UniversityRole::QaOfficer,
+        'school_id' => $school->id,
     ]);
 
-    $lecturerData = [
-        'name' => 'Nursing Lecturer',
-        'email' => 'nursing.lecturer@example.com',
-        'university_role' => UniversityRole::Lecturer->value,
-        'password' => 'password',
-        'password_confirmation' => 'password',
-    ];
-
     $this->actingAs($admin)
-        ->post('/quality/users', $lecturerData)
-        ->assertInvalid('department_id');
-
-    $this->actingAs($admin)
-        ->post('/quality/users', [
-            ...$lecturerData,
-            'department_id' => $department->id,
+        ->patch("/quality/users/{$lecturer->id}", [
+            'name' => $lecturer->name,
+            'email' => $lecturer->email,
+            'university_role' => UniversityRole::Hod->value,
         ])
-        ->assertRedirect('/quality/users');
+        ->assertInvalid('placement');
 
-    expect(User::where('email', 'nursing.lecturer@example.com')->first())
-        ->school_id->toBe($school->id)
-        ->department_id->toBe($department->id);
+    $this->actingAs($admin)
+        ->patch("/quality/users/{$schoolOfficer->id}", [
+            'name' => $schoolOfficer->name,
+            'email' => $schoolOfficer->email,
+            'university_role' => UniversityRole::Hod->value,
+        ])
+        ->assertInvalid('placement');
+
+    expect($lecturer->refresh()->university_role)->toBe(UniversityRole::Lecturer->value);
 });
 
 it('derives a lecturer school from the assigned department on the users page', function () {

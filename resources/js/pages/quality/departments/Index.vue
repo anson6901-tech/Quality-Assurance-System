@@ -30,13 +30,6 @@ type DepartmentRow = {
 const props = defineProps<{
     departments: DepartmentRow[];
     schools: SchoolOption[];
-    hods: {
-        id: number;
-        name: string;
-        email: string;
-        school_id: number | null;
-        department_id: number | null;
-    }[];
 }>();
 
 defineOptions({
@@ -54,13 +47,11 @@ const form = useForm({
     school_id: '',
     name: '',
     code: '',
-    hod_id: '',
 });
 const editForm = useForm({
     school_id: '',
     name: '',
     code: '',
-    hod_id: '',
 });
 const editingDepartment = ref<DepartmentRow | null>(null);
 const editOpen = ref(false);
@@ -80,7 +71,6 @@ const startEdit = (department: DepartmentRow) => {
     editForm.school_id = String(department.school.id);
     editForm.name = department.name;
     editForm.code = department.code;
-    editForm.hod_id = department.hod ? String(department.hod.id) : '';
     editForm.clearErrors();
     editOpen.value = true;
 };
@@ -117,7 +107,7 @@ const deleteDepartment = (department: DepartmentRow) => {
         <section class="space-y-6">
             <PageBanner
                 title="Departments"
-                description="Departments sit under schools and scope HOD and lecturer access"
+                description="Departments sit under schools. Heads of Department are placed on the Organizational Structure."
             >
                 <template #actions>
                     <div class="flex flex-wrap gap-2">
@@ -166,7 +156,10 @@ const deleteDepartment = (department: DepartmentRow) => {
                     <span>{{ department.school.name }}</span>
                     <div>
                         <div class="font-medium">
-                            {{ department.hod?.name ?? 'Not assigned' }}
+                            {{
+                                department.hod?.name ??
+                                'Set on Organizational Structure'
+                            }}
                         </div>
                         <div class="text-muted-foreground">
                             {{ department.hod?.email }}
@@ -252,25 +245,6 @@ const deleteDepartment = (department: DepartmentRow) => {
                     <InputError :message="form.errors.code" />
                 </div>
 
-                <div class="grid gap-2">
-                    <Label for="hod">Head of Department</Label>
-                    <select
-                        id="hod"
-                        v-model="form.hod_id"
-                        class="h-9 rounded-md border border-[#9fd8b8] bg-white px-3 text-sm text-[#063f22] focus:border-[#007a2f] focus:ring-[#007a2f]/20"
-                    >
-                        <option value="">Assign later</option>
-                        <option
-                            v-for="hod in hods"
-                            :key="hod.id"
-                            :value="hod.id"
-                        >
-                            {{ hod.name }} - {{ hod.email }}
-                        </option>
-                    </select>
-                    <InputError :message="form.errors.hod_id" />
-                </div>
-
                 <div class="flex justify-end gap-2">
                     <Button
                         type="button"
@@ -337,27 +311,6 @@ const deleteDepartment = (department: DepartmentRow) => {
                         required
                     />
                     <InputError :message="editForm.errors.code" />
-                </div>
-
-                <div class="grid gap-2">
-                    <Label for="edit-department-hod">
-                        Head of Department
-                    </Label>
-                    <select
-                        id="edit-department-hod"
-                        v-model="editForm.hod_id"
-                        class="h-9 rounded-md border px-3 text-sm"
-                    >
-                        <option value="">Not assigned</option>
-                        <option
-                            v-for="hod in props.hods"
-                            :key="hod.id"
-                            :value="hod.id"
-                        >
-                            {{ hod.name }} - {{ hod.email }}
-                        </option>
-                    </select>
-                    <InputError :message="editForm.errors.hod_id" />
                 </div>
 
                 <div class="flex justify-end gap-2 pt-2">

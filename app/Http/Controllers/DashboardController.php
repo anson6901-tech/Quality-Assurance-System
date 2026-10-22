@@ -6,6 +6,7 @@ use App\Enums\UniversityRole;
 use App\Models\AcademicYear;
 use App\Models\Course;
 use App\Models\QualityReport;
+use App\Support\Area;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -20,9 +21,13 @@ class DashboardController extends Controller
             ->where('status', 'approved');
 
         $pending = match (true) {
-            $user->canApproveQualityReports() => QualityReport::query()->where('status', 'under_review')->count(),
+            $user->canApproveQualityReports() => QualityReport::query()
+                ->where('status', 'under_review')
+                ->tap(fn ($query) => Area::reports($query, $user))
+                ->count(),
             $user->canReviewQualityReports() => QualityReport::query()
                 ->where('status', 'submitted')
+                ->tap(fn ($query) => Area::reports($query, $user))
                 ->when(
                     $user->university_role !== UniversityRole::IctAdmin->value,
                     fn ($query) => $query->where('assigned_supervisor_id', $user->id),
@@ -34,7 +39,7 @@ class DashboardController extends Controller
             default => 0,
         };
 
-        $academicYearStats = $user->university_role === UniversityRole::IctAdmin->value
+        $academicYearStats = $user->university_role === UniversityRole::IctAdmin->value && $user->isPlacedAtUniversity()
             ? AcademicYear::query()
                 ->withCount([
                     'qualityReports as total_reports_count',
@@ -67,10 +72,8 @@ class DashboardController extends Controller
                 'assignedCourses' => Course::query()
                     ->whereHas('lecturers', fn ($query) => $query->whereKey($user->id))
                     ->count(),
-                'departmentCourses' => $user->department_id
-                    ? Course::query()
-                        ->whereHas('offerings.program', fn ($query) => $query->where('department_id', $user->department_id))
-                        ->count()
+                'departmentCourses' => $user->placement
+                    ? Area::courses(Course::query(), $user)->count()
                     : 0,
             ],
             'academicYearStats' => $academicYearStats,

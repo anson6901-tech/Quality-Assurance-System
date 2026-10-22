@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\QualityRolePermission;
 use App\Models\User;
+use App\Support\Area;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -64,37 +65,28 @@ class CourseSearchController extends Controller
      */
     private function scopeToUser(Builder $query, User $user): void
     {
-        $role = $user->university_role;
-
-        if (
+        $worksWithArea = $user->placement !== null && (
             $user->canManageQualityStructure()
             || $user->canUploadQualityReports()
             || $user->canViewQualityReports()
             || $user->canApproveQualityReports()
-            || QualityRolePermission::roleHas($role, 'view_all_reports')
-        ) {
+            || $user->canManageCourseAssignments()
+            || $user->canViewAreaReports()
+        );
+
+        if ($worksWithArea && $user->isPlacedAtUniversity()) {
             return;
         }
 
-        $query->where(function (Builder $query) use ($user, $role): void {
+        $query->where(function (Builder $query) use ($user, $worksWithArea): void {
             $matched = false;
 
-            if (QualityRolePermission::roleHas($role, 'view_school_reports') && $user->school_id) {
+            if ($worksWithArea) {
                 $matched = true;
-                $query->orWhereHas('department', fn (Builder $query) => $query->where('school_id', $user->school_id))
-                    ->orWhereHas('offerings.program.department', fn (Builder $query) => $query->where('school_id', $user->school_id));
+                $query->orWhere(fn (Builder $query) => Area::courses($query, $user));
             }
 
-            if (
-                ($user->canManageCourseAssignments() || QualityRolePermission::roleHas($role, 'view_department_reports'))
-                && $user->department_id
-            ) {
-                $matched = true;
-                $query->orWhere('department_id', $user->department_id)
-                    ->orWhereHas('offerings.program', fn (Builder $query) => $query->where('department_id', $user->department_id));
-            }
-
-            if (QualityRolePermission::roleHas($role, 'view_own_reports')) {
+            if (QualityRolePermission::roleHas($user->university_role, 'view_own_reports')) {
                 $matched = true;
                 $query->orWhereHas('lecturers', fn (Builder $query) => $query->whereKey($user->id));
             }
