@@ -3,10 +3,13 @@
 use App\Enums\Placement;
 use App\Enums\UniversityRole;
 use App\Models\AcademicYear;
+use App\Models\Course;
 use App\Models\Department;
+use App\Models\Program;
 use App\Models\QualityReport;
 use App\Models\School;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 
 function organization(): array
@@ -203,20 +206,87 @@ it('scopes deans to their school and hods to their department for published repo
             ->where('reports.0.title', 'Midwifery report'));
 });
 
-it('gives users who are not placed nothing beyond their own work', function () {
+it('gives users who are not placed no access, whatever their role and rights', function () {
     $org = organization();
-    reportFor(lecturerIn($org['nursing']), 'Nursing report');
-    $director = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
-    $director->forceFill(['placement' => null])->save();
+    $draft = reportFor(lecturerIn($org['nursing']), 'Nursing draft', 'draft');
 
-    $this->actingAs($director)
-        ->get('/quality/approvals')
+    foreach ([UniversityRole::QaDirector, UniversityRole::QaSupervisor, UniversityRole::QaOfficer, UniversityRole::IctAdmin, UniversityRole::Hod, UniversityRole::Dean] as $role) {
+        $user = User::factory()->create(['university_role' => $role]);
+        $user->forceFill(['placement' => null])->save();
+
+        foreach ([
+            '/quality/approvals', '/quality/reports', '/quality/reports/create', '/quality/print-queue',
+            '/quality/course-assignments', '/quality/course-offerings', '/quality/schools', '/quality/courses',
+            '/quality/users', '/quality/organization', '/quality/roles', '/quality/audit-logs', '/quality/email-settings',
+        ] as $page) {
+            $this->actingAs($user)->get($page)->assertForbidden();
+        }
+
+        $this->actingAs($user)
+            ->get(route('dashboard', ['current_team' => $user->refresh()->currentTeam]))
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('stats.publishedReports', 0)
+                ->where('stats.pendingReports', 0)
+                ->where('stats.departmentCourses', 0)
+                ->where('qualityProfile.canViewReports', false)
+                ->where('qualityProfile.canManageUsers', false));
+    }
+
+    $officer = User::find($draft->uploaded_by);
+    $officer->forceFill(['university_role' => UniversityRole::QaOfficer, 'placement' => null])->save();
+    $this->actingAs($officer)->get("/quality/reports/{$draft->id}")->assertForbidden();
+});
+
+it('still shows unplaced lecturers their own assigned courses and published reports', function () {
+    $org = organization();
+    $program = Program::create(['department_id' => $org['nursing']->id, 'name' => 'BSc Nursing', 'code' => 'BSCN', 'max_level' => 400]);
+    $semester = AcademicYear::create(['name' => '2026/2027', 'status' => 'active'])->semesters()->firstOrFail();
+    $course = Course::create(['code' => 'NURS401', 'title' => 'Clinical Nursing', 'level' => '400']);
+    $lecturer = User::factory()->create(['university_role' => UniversityRole::Lecturer]);
+    $lecturer->forceFill(['placement' => null, 'school_id' => null, 'department_id' => null])->save();
+    $colleague = lecturerIn($org['nursing']);
+
+    DB::table('course_lecturer')->insert([
+        'course_id' => $course->id,
+        'program_id' => $program->id,
+        'semester_id' => $semester->id,
+        'lecturer_id' => $lecturer->id,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $reports = collect(['approved' => $lecturer, 'draft' => $lecturer, 'colleague' => $colleague])
+        ->map(function (User $owner, string $key) use ($org, $program, $semester, $course) {
+            $report = QualityReport::create([
+                'title' => ucfirst($key).' report',
+                'category' => 'Academic Quality',
+                'status' => $key === 'draft' ? 'draft' : 'approved',
+                'academic_year_id' => $semester->academic_year_id,
+                'semester_id' => $semester->id,
+                'school_id' => $org['nursingSchool']->id,
+                'department_id' => $org['nursing']->id,
+                'program_id' => $program->id,
+                'lecturer_id' => $owner->id,
+                'uploaded_by' => $owner->id,
+            ]);
+            $report->courses()->attach($course);
+
+            return $report;
+        });
+
+    $this->actingAs($lecturer)
+        ->get('/quality/my-courses')
         ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page->has('reports', 0));
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('courses', 1)
+            ->where('courses.0.code', 'NURS401')
+            ->has('courses.0.parts.0.reports', 1)
+            ->where('courses.0.parts.0.reports.0.title', 'Approved report'));
 
-    $this->actingAs($director)->get('/quality/schools')->assertForbidden();
-    $this->actingAs($director)->get('/quality/users')->assertForbidden();
-    $this->actingAs($director)->get('/quality/organization')->assertForbidden();
+    $this->actingAs($lecturer)->get("/quality/reports/{$reports['approved']->id}/file")->assertStatus(404);
+    $this->actingAs($lecturer)->get("/quality/reports/{$reports['draft']->id}")->assertForbidden();
+    $this->actingAs($lecturer)->get("/quality/reports/{$reports['colleague']->id}")->assertForbidden();
+    $this->actingAs($lecturer)->get('/quality/print-queue')->assertForbidden();
 });
 
 it('limits an ict admin placed in a department to that department', function () {

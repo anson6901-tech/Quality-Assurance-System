@@ -925,7 +925,11 @@ class QualityReportController extends Controller
 
     private function canViewReport(Request $request, QualityReport $report): bool
     {
-        if ($report->uploaded_by === $request->user()->id && $report->status !== 'approved') {
+        if (
+            $report->uploaded_by === $request->user()->id
+            && $report->status !== 'approved'
+            && $request->user()->canUploadQualityReports()
+        ) {
             return true;
         }
 

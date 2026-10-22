@@ -108,6 +108,16 @@ class User extends Authenticatable
         return $this->university_role === UniversityRole::QaOfficer->value;
     }
 
+    /**
+     * Rights only take effect once a user is placed on the organizational structure. Until
+     * then a user, whatever their role, sees only their own assigned courses and their own
+     * published reports (My Courses).
+     */
+    public function isPlaced(): bool
+    {
+        return $this->placement !== null;
+    }
+
     public function isPlacedAtUniversity(): bool
     {
         return $this->placement === Placement::University;
@@ -119,7 +129,7 @@ class User extends Authenticatable
      */
     public function canViewAreaReports(): bool
     {
-        return $this->placement !== null
+        return $this->isPlaced()
             && QualityRolePermission::roleHas($this->university_role, 'view_area_reports');
     }
 
@@ -135,12 +145,13 @@ class User extends Authenticatable
 
     public function canManageCourseAssignments(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'manage_course_assignments');
+        return $this->isPlaced()
+            && QualityRolePermission::roleHas($this->university_role, 'manage_course_assignments');
     }
 
     public function canManageUsers(): bool
     {
-        return $this->placement !== null
+        return $this->isPlaced()
             && QualityRolePermission::roleHas($this->university_role, 'manage_users');
     }
 
@@ -155,27 +166,31 @@ class User extends Authenticatable
 
     public function canUploadQualityReports(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'upload_reports');
+        return $this->isPlaced()
+            && QualityRolePermission::roleHas($this->university_role, 'upload_reports');
     }
 
     public function canViewQualityReports(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'view_reports');
+        return $this->isPlaced()
+            && QualityRolePermission::roleHas($this->university_role, 'view_reports');
     }
 
     public function canApproveQualityReports(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'approve_reports');
+        return $this->isPlaced()
+            && QualityRolePermission::roleHas($this->university_role, 'approve_reports');
     }
 
     public function canReviewQualityReports(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'review_reports');
+        return $this->isPlaced()
+            && QualityRolePermission::roleHas($this->university_role, 'review_reports');
     }
 
     public function canViewApprovalQueue(): bool
     {
-        return QualityRolePermission::roleHas($this->university_role, 'view_approval_queue')
+        return ($this->isPlaced() && QualityRolePermission::roleHas($this->university_role, 'view_approval_queue'))
             || $this->canReviewQualityReports()
             || $this->canApproveQualityReports();
     }
@@ -186,7 +201,8 @@ class User extends Authenticatable
             return false;
         }
 
-        return QualityRolePermission::roleHas($this->university_role, 'view_print_queue');
+        return $this->isPlaced()
+            && QualityRolePermission::roleHas($this->university_role, 'view_print_queue');
     }
 
     public function canViewAuditLogs(): bool
