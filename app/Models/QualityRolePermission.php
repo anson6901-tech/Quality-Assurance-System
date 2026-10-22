@@ -39,6 +39,7 @@ class QualityRolePermission extends Model
             'view_own_reports' => 'View own approved lecturer reports',
             'view_print_queue' => 'Access print queue',
             'view_audit_logs' => 'View audit logs',
+            'manage_email_settings' => 'Configure email sending (Microsoft 365) and notifications',
         ];
     }
 
@@ -64,6 +65,7 @@ class QualityRolePermission extends Model
                 'view_own_reports',
                 'view_print_queue',
                 'view_audit_logs',
+                'manage_email_settings',
             ],
             UniversityRole::Dean->value => ['view_area_reports', 'view_own_reports', 'view_print_queue'],
             UniversityRole::Hod->value => ['manage_course_assignments', 'view_area_reports', 'view_own_reports', 'view_print_queue'],
@@ -114,6 +116,11 @@ class QualityRolePermission extends Model
                 'label' => 'Audit Logs',
                 'description' => 'Open and export the record of administrative actions',
                 'permissions' => ['view_audit_logs'],
+            ],
+            [
+                'label' => 'Email Settings',
+                'description' => 'Connect Microsoft 365 email and choose which notifications are sent',
+                'permissions' => ['manage_email_settings'],
             ],
         ])
             ->map(fn (array $group): array => [

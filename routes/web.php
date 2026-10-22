@@ -9,6 +9,7 @@ use App\Http\Controllers\Quality\CourseController;
 use App\Http\Controllers\Quality\CourseOfferingController;
 use App\Http\Controllers\Quality\CourseSearchController;
 use App\Http\Controllers\Quality\DepartmentController;
+use App\Http\Controllers\Quality\EmailSettingsController;
 use App\Http\Controllers\Quality\MyCourseController;
 use App\Http\Controllers\Quality\OrganizationController;
 use App\Http\Controllers\Quality\ProgramController;
@@ -101,6 +102,7 @@ Route::middleware(['auth', 'verified'])
         Route::patch('users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::patch('users/{user}/password', [UserController::class, 'resetPassword'])->name('users.password');
         Route::patch('users/{user}/status', [UserController::class, 'updateStatus'])->name('users.status');
+        Route::post('users/{user}/reset-link', [UserController::class, 'sendResetLink'])->name('users.reset-link');
         Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
 
         Route::get('organization', [OrganizationController::class, 'index'])->name('organization.index');
@@ -116,6 +118,10 @@ Route::middleware(['auth', 'verified'])
         Route::delete('roles/{role}', [RoleRightController::class, 'destroy'])->name('roles.destroy');
         Route::get('permissions', [RoleRightController::class, 'permissions'])->name('permissions.index');
         Route::patch('permissions/{role}', [RoleRightController::class, 'updatePermissions'])->name('permissions.update');
+
+        Route::get('email-settings', [EmailSettingsController::class, 'show'])->name('email-settings.show');
+        Route::put('email-settings', [EmailSettingsController::class, 'update'])->name('email-settings.update');
+        Route::post('email-settings/test', [EmailSettingsController::class, 'test'])->name('email-settings.test');
 
         Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
         Route::get('audit-logs/export', [AuditLogController::class, 'export'])->name('audit-logs.export');

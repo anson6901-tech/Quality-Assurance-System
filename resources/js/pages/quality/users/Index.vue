@@ -6,6 +6,7 @@ import {
     Download,
     Edit,
     KeyRound,
+    MailCheck,
     Plus,
     Save,
     Trash2,
@@ -54,6 +55,8 @@ const props = defineProps<{
     roles: RoleOption[];
     placesNewUsers: boolean;
     actorPlacementLabel: string;
+    emailEnabled: boolean;
+    welcomeEmails: boolean;
 }>();
 
 defineOptions({
@@ -128,6 +131,16 @@ const startEdit = (user: UserRow) => {
     editForm.email = user.email;
     editForm.staff_id = user.staffId ?? '';
     editForm.university_role = user.role ?? 'lecturer';
+};
+
+const sendResetEmail = (user: UserRow) => {
+    if (window.confirm(`Email ${user.email} a link to set a new password?`)) {
+        router.post(
+            `/quality/users/${user.id}/reset-link`,
+            {},
+            { preserveScroll: true },
+        );
+    }
 };
 
 const startPasswordReset = (user: UserRow) => {
@@ -327,6 +340,17 @@ const deleteUser = (user: UserRow) => {
                             Password
                         </Button>
                         <Button
+                            v-if="emailEnabled"
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            :title="`Email ${user.email} a link to set a new password`"
+                            @click="sendResetEmail(user)"
+                        >
+                            <MailCheck class="size-4" />
+                            Reset email
+                        </Button>
+                        <Button
                             type="button"
                             variant="outline"
                             size="icon"
@@ -448,30 +472,41 @@ const deleteUser = (user: UserRow) => {
                     </p>
                     <InputError :message="placementError(form.errors)" />
 
-                    <div class="grid gap-2">
-                        <Label for="password">Password</Label>
-                        <Input
-                            id="password"
-                            v-model="form.password"
-                            class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
-                            type="password"
-                            required
-                        />
-                        <InputError :message="form.errors.password" />
-                    </div>
+                    <p
+                        v-if="welcomeEmails"
+                        class="rounded-md bg-[#edf9f2] px-3 py-2 text-xs leading-5 text-[#3c5059]"
+                    >
+                        The system will create a temporary password and email it
+                        to this address. They choose their own password the
+                        first time they sign in.
+                    </p>
 
-                    <div class="grid gap-2">
-                        <Label for="password-confirmation"
-                            >Confirm password</Label
-                        >
-                        <Input
-                            id="password-confirmation"
-                            v-model="form.password_confirmation"
-                            class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
-                            type="password"
-                            required
-                        />
-                    </div>
+                    <template v-else>
+                        <div class="grid gap-2">
+                            <Label for="password">Password</Label>
+                            <Input
+                                id="password"
+                                v-model="form.password"
+                                class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                                type="password"
+                                required
+                            />
+                            <InputError :message="form.errors.password" />
+                        </div>
+
+                        <div class="grid gap-2">
+                            <Label for="password-confirmation"
+                                >Confirm password</Label
+                            >
+                            <Input
+                                id="password-confirmation"
+                                v-model="form.password_confirmation"
+                                class="border-[#9fd8b8] bg-white focus-visible:ring-[#007a2f]/20"
+                                type="password"
+                                required
+                            />
+                        </div>
+                    </template>
 
                     <div class="flex justify-end gap-2 pt-2">
                         <Button
@@ -503,6 +538,10 @@ const deleteUser = (user: UserRow) => {
                             department codes place each user on the
                             Organizational Structure; leave them blank to place
                             users later.
+                            <template v-if="welcomeEmails">
+                                Leave temporary_password blank to have the
+                                system create one and email it to each user.
+                            </template>
                         </DialogDescription>
                     </DialogHeader>
 

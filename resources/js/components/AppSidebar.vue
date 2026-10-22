@@ -15,6 +15,7 @@ import {
     Network,
     ListPlus,
     LogOut,
+    Mail,
     Printer,
     Settings,
     ShieldCheck,
@@ -192,6 +193,15 @@ const administrationNavItems = computed<NavItem[]>(() => [
                   title: 'Courses',
                   href: '/quality/courses',
                   icon: BookOpenCheck,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canManageEmailSettings
+        ? [
+              {
+                  title: 'Email Settings',
+                  href: '/quality/email-settings',
+                  icon: Mail,
               },
           ]
         : []),

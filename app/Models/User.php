@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Concerns\HasTeams;
 use App\Enums\Placement;
 use App\Enums\UniversityRole;
+use App\Notifications\ResetPasswordNotification;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -92,6 +93,14 @@ class User extends Authenticatable
         return $this->belongsToMany(Course::class, 'course_lecturer', 'lecturer_id', 'course_id')
             ->withPivot(['program_id', 'section_id', 'semester_id', 'student_count', 'allocated_hours'])
             ->withTimestamps();
+    }
+
+    /**
+     * @param  string  $token
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        $this->notify(new ResetPasswordNotification($token));
     }
 
     public function isQaOfficer(): bool
@@ -218,7 +227,17 @@ class User extends Authenticatable
             'canApproveReports' => $this->canApproveQualityReports(),
             'canViewPrintQueue' => $this->canViewPrintQueue(),
             'canViewAuditLogs' => $this->canViewAuditLogs(),
+            'canManageEmailSettings' => $this->canManageEmailSettings(),
         ];
+    }
+
+    /**
+     * Email is configured for the whole university, so only university-placed users may change it.
+     */
+    public function canManageEmailSettings(): bool
+    {
+        return $this->isPlacedAtUniversity()
+            && QualityRolePermission::roleHas($this->university_role, 'manage_email_settings');
     }
 
     /**

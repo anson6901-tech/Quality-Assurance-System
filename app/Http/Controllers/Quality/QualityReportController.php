@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Support\Area;
 use App\Support\CourseBoard;
 use App\Support\CoursePartitions;
+use App\Support\ReportNotifications;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -960,6 +961,8 @@ class QualityReportController extends Controller
             'action' => $action,
             'note' => $note,
         ]);
+
+        ReportNotifications::dispatch($report, $actor, $action, $note);
     }
 
     private function canReviewAssignedReport(Request $request, QualityReport $report): bool

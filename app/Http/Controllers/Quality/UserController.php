@@ -7,16 +7,20 @@ use App\Enums\Placement;
 use App\Enums\UniversityRole;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
+use App\Models\EmailSetting;
 use App\Models\QualityRolePermission;
 use App\Models\School;
 use App\Models\User;
+use App\Notifications\WelcomeNotification;
 use App\Support\Area;
 use App\Support\Placements;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password as PasswordBroker;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
@@ -59,6 +63,8 @@ class UserController extends Controller
                 }),
             'roles' => QualityRolePermission::roleOptions(),
             'placesNewUsers' => ! $request->user()->isPlacedAtUniversity(),
+            'emailEnabled' => EmailSetting::allows('enabled'),
+            'welcomeEmails' => EmailSetting::allows('send_welcome'),
             'actorPlacementLabel' => $request->user()->placementLabel(),
         ]);
     }
@@ -69,13 +75,15 @@ class UserController extends Controller
 
         $validated = $this->validatedUserData($request);
         $target = $this->defaultPlacementFor($request->user());
+        $welcome = EmailSetting::allows('send_welcome');
+        $password = $welcome ? self::temporaryPassword() : $validated['password'];
         Placements::ensureHeadRules($validated['university_role'], $target);
 
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'staff_id' => $validated['staff_id'] ?? null,
-            'password' => Hash::make($validated['password']),
+            'password' => Hash::make($password),
             'must_change_password' => true,
             'email_verified_at' => now(),
             'university_role' => $validated['university_role'],
@@ -86,9 +94,14 @@ class UserController extends Controller
 
         app(CreateTeam::class)->handle($user, "{$user->name}'s Team", true);
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => $target['placement'] === null
-            ? __('User created. Place them on the Organizational Structure to give them access.')
-            : __('User created.')]);
+        if ($welcome) {
+            $user->notify(new WelcomeNotification($password));
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => collect([
+            $welcome ? __('User created. Their temporary password has been emailed to :email.', ['email' => $user->email]) : __('User created.'),
+            $target['placement'] === null ? __('Place them on the Organizational Structure to give them access.') : null,
+        ])->filter()->implode(' ')]);
 
         return to_route('quality.users.index');
     }
@@ -155,8 +168,12 @@ class UserController extends Controller
             'last_name',
             'email',
             'university_role',
-            'temporary_password',
         ];
+        $welcome = EmailSetting::allows('send_welcome');
+
+        if (! $welcome) {
+            $requiredColumns[] = 'temporary_password';
+        }
 
         foreach ($requiredColumns as $requiredColumn) {
             abort_unless($columns->has($requiredColumn), 422, __('Missing CSV column: :column', ['column' => $requiredColumn]));
@@ -191,7 +208,7 @@ class UserController extends Controller
                 'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
                 'staff_id' => ['nullable', 'string', 'max:50', Rule::unique('users', 'staff_id')],
                 'university_role' => ['required', Rule::in($roleValues)],
-                'temporary_password' => ['required', Password::defaults()],
+                'temporary_password' => [$welcome ? 'nullable' : 'required', Password::defaults()],
             ]);
 
             if ($validator->fails()) {
@@ -238,7 +255,7 @@ class UserController extends Controller
                 'name' => trim($data['first_name'].' '.$data['last_name']),
                 'email' => $data['email'],
                 'staff_id' => $data['staff_id'],
-                'password' => Hash::make($data['temporary_password']),
+                'password' => Hash::make($password = $data['temporary_password'] ?: self::temporaryPassword()),
                 'must_change_password' => true,
                 'email_verified_at' => now(),
                 'university_role' => $data['university_role'],
@@ -248,6 +265,11 @@ class UserController extends Controller
             ]);
 
             app(CreateTeam::class)->handle($user, "{$user->name}'s Team", true);
+
+            if ($welcome) {
+                $user->notify(new WelcomeNotification($password));
+            }
+
             $imported++;
         }
 
@@ -303,6 +325,27 @@ class UserController extends Controller
         ])->save();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Password reset.')]);
+
+        return to_route('quality.users.index');
+    }
+
+    /**
+     * Emails the user a link to choose a new password, instead of an admin typing one.
+     */
+    public function sendResetLink(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($request->user()->canManageUsers(), 403);
+        $this->authorizeTarget($request, $user);
+
+        $status = EmailSetting::allows('enabled')
+            ? PasswordBroker::broker()->sendResetLink(['email' => $user->email])
+            : null;
+
+        Inertia::flash('toast', match ($status) {
+            PasswordBroker::RESET_LINK_SENT => ['type' => 'success', 'message' => __('Password reset email sent to :email.', ['email' => $user->email])],
+            null => ['type' => 'error', 'message' => __('Email sending is switched off. Turn it on in Email Settings first.')],
+            default => ['type' => 'error', 'message' => __($status)],
+        });
 
         return to_route('quality.users.index');
     }
@@ -367,7 +410,11 @@ class UserController extends Controller
                 Rule::unique('users', 'staff_id')->ignore($user),
             ],
             'university_role' => ['required', 'string', Rule::in(array_column(QualityRolePermission::roleOptions(), 'value'))],
-            'password' => [$user ? 'sometimes' : 'required', 'confirmed', Password::defaults()],
+            'password' => [
+                $user ? 'sometimes' : (EmailSetting::allows('send_welcome') ? 'nullable' : 'required'),
+                'confirmed',
+                Password::defaults(),
+            ],
         ]);
 
         $validated['name'] = filled($validated['first_name'] ?? null)
@@ -390,6 +437,14 @@ class UserController extends Controller
         }
 
         return true;
+    }
+
+    /**
+     * Letters and digits only, so it is easy to read from an email and type in.
+     */
+    private static function temporaryPassword(): string
+    {
+        return Str::password(12, symbols: false);
     }
 
     /**

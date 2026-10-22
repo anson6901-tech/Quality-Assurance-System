@@ -26,7 +26,7 @@ it('shows separate role and permission modules to users with manage user access'
         ->assertInertia(fn (Assert $page) => $page
             ->component('quality/permissions/Index')
             ->has('roles', count(UniversityRole::cases()))
-            ->has('permissionGroups', 7)
+            ->has('permissionGroups', 8)
             ->where('selectedRole', UniversityRole::QaOfficer->value)
             ->where('permissionGroups.0.label', 'Upload Reports')
             ->where('permissionGroups.0.permissions.0.value', 'view_reports')
