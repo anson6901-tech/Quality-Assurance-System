@@ -102,8 +102,9 @@ test('the course import template uses valid department and program codes', funct
         ->assertDownload('course-import-template.csv');
 
     expect($response->streamedContent())
-        ->toContain('department_code,code,title,course_type,level,credit_hours')
-        ->toContain('NURS,,,normal,100,3');
+        ->toContain('code,title,course_type,level,credit_hours')
+        ->toContain(',,normal,100,3')
+        ->not->toContain('department_code');
 });
 
 test('a reusable course can be catalogued before deciding which program will use it', function () {
@@ -134,4 +135,72 @@ test('a reusable course can be catalogued before deciding which program will use
         ->assertRedirect('/quality/courses');
 
     expect(Course::where('code', 'PHYS501')->value('program_id'))->toBeNull();
+});
+
+test('courses are created without a department so any department can mount them', function () {
+    $administrator = User::factory()->create([
+        'university_role' => UniversityRole::IctAdmin,
+    ]);
+
+    $this->actingAs($administrator)
+        ->post('/quality/courses', [
+            'code' => 'GSTD101',
+            'title' => 'Communication Skills',
+            'course_type' => 'normal',
+            'level' => '100',
+            'credit_hours' => 2,
+        ])
+        ->assertRedirect('/quality/courses');
+
+    $course = Course::where('code', 'GSTD101')->firstOrFail();
+
+    expect($course->department_id)->toBeNull()
+        ->and($course->program_id)->toBeNull();
+
+    $this->actingAs($administrator)
+        ->get('/quality/courses')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('quality/courses/Index')
+            ->has('courses', 1)
+            ->missing('departments'));
+});
+
+test('course codes are unique across the whole catalogue', function () {
+    $administrator = User::factory()->create([
+        'university_role' => UniversityRole::IctAdmin,
+    ]);
+    Course::create([
+        'code' => 'GSTD101',
+        'title' => 'Communication Skills',
+        'course_type' => 'normal',
+        'level' => '100',
+    ]);
+
+    $this->actingAs($administrator)
+        ->post('/quality/courses', [
+            'code' => 'GSTD101',
+            'title' => 'Duplicate',
+            'course_type' => 'normal',
+            'level' => '100',
+        ])
+        ->assertSessionHasErrors('code');
+
+    expect(Course::where('code', 'GSTD101')->count())->toBe(1);
+});
+
+test('courses import without a department column', function () {
+    $administrator = User::factory()->create([
+        'university_role' => UniversityRole::IctAdmin,
+    ]);
+    $csv = \Illuminate\Http\UploadedFile::fake()->createWithContent(
+        'courses.csv',
+        "code,title,course_type,level,credit_hours\nGSTD101,Communication Skills,normal,100,2\nGSTD102,Academic Writing,normal,100,\n",
+    );
+
+    $this->actingAs($administrator)
+        ->post('/quality/courses/import', ['courses_file' => $csv])
+        ->assertRedirect('/quality/courses');
+
+    expect(Course::whereIn('code', ['GSTD101', 'GSTD102'])->whereNull('department_id')->count())->toBe(2);
 });

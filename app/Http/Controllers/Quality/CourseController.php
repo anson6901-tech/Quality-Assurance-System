@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Quality;
 
 use App\Http\Controllers\Controller;
 use App\Models\Course;
-use App\Models\Department;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -20,18 +19,8 @@ class CourseController extends Controller
 
         return Inertia::render('quality/courses/Index', [
             'courses' => Course::query()
-                ->with('department.school:id,name')
-                ->join('departments', 'departments.id', '=', 'courses.department_id')
-                ->join('schools', 'schools.id', '=', 'departments.school_id')
-                ->orderBy('schools.name')
-                ->orderBy('departments.name')
-                ->orderBy('courses.code')
-                ->select('courses.*')
+                ->orderBy('code')
                 ->get(),
-            'departments' => Department::query()
-                ->with('school:id,name')
-                ->orderBy('name')
-                ->get(['id', 'school_id', 'name']),
         ]);
     }
 
@@ -40,13 +29,7 @@ class CourseController extends Controller
         abort_unless($request->user()->canManageQualityStructure(), 403);
 
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', Rule::exists('departments', 'id')],
-            'code' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('courses', 'code')->where('department_id', $request->input('department_id')),
-            ],
+            'code' => ['required', 'string', 'max:50', Rule::unique('courses', 'code')],
             'title' => ['required', 'string', 'max:255'],
             'course_type' => ['required', 'string', Rule::in(['normal', 'module'])],
             'level' => ['required', 'string', 'regex:/^[1-9][0-9]*00$/'],
@@ -54,7 +37,7 @@ class CourseController extends Controller
         ]);
 
         Course::create([
-            'department_id' => $validated['department_id'],
+            'department_id' => null,
             'program_id' => null,
             'code' => $validated['code'],
             'title' => $validated['title'],
@@ -89,11 +72,6 @@ class CourseController extends Controller
             abort_unless($columns->has($requiredColumn), 422);
         }
 
-        $departmentColumn = collect(['department_code', 'department', 'department_name'])
-            ->first(fn (string $column) => $columns->has($column));
-
-        abort_unless($departmentColumn !== null, 422);
-
         $imported = 0;
         $skipped = 0;
 
@@ -105,9 +83,8 @@ class CourseController extends Controller
                 ? strtolower(trim((string) ($row[$columns['course_type']] ?? 'normal')))
                 : 'normal';
             $level = trim((string) ($row[$columns['level']] ?? ''));
-            $departmentValue = trim((string) ($row[$columns[$departmentColumn]] ?? ''));
 
-            if ($code === '' || $title === '' || $departmentValue === '') {
+            if ($code === '' || $title === '') {
                 $skipped++;
                 continue;
             }
@@ -125,24 +102,15 @@ class CourseController extends Controller
                 continue;
             }
 
-            $department = Department::query()
-                ->where('code', $departmentValue)
-                ->orWhere('name', $departmentValue)
-                ->first();
-
-            if (! $department) {
-                $skipped++;
-                continue;
-            }
-
             if (! preg_match('/^[1-9][0-9]*00$/', $level)) {
                 $skipped++;
                 continue;
             }
 
             Course::updateOrCreate(
-                ['department_id' => $department->id, 'code' => $code],
+                ['code' => $code],
                 [
+                    'department_id' => null,
                     'program_id' => null,
                     'title' => $title,
                     'course_type' => $courseType,
@@ -171,12 +139,9 @@ class CourseController extends Controller
     {
         abort_unless($request->user()->canManageQualityStructure(), 403);
 
-        $departments = Department::query()->orderBy('code')->get(['id', 'code']);
-
-        return response()->streamDownload(function () use ($departments): void {
+        return response()->streamDownload(function (): void {
             $output = fopen('php://output', 'w');
             fputcsv($output, [
-                'department_code',
                 'code',
                 'title',
                 'course_type',
@@ -184,16 +149,7 @@ class CourseController extends Controller
                 'credit_hours',
             ]);
 
-            foreach ($departments as $department) {
-                fputcsv($output, [
-                    $department->code,
-                    '',
-                    '',
-                    'normal',
-                    '100',
-                    '3',
-                ]);
-            }
+            fputcsv($output, ['', '', 'normal', '100', '3']);
 
             fclose($output);
         }, 'course-import-template.csv', [
@@ -206,15 +162,7 @@ class CourseController extends Controller
         abort_unless($request->user()->canManageQualityStructure(), 403);
 
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', Rule::exists('departments', 'id')],
-            'code' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('courses', 'code')
-                    ->where('department_id', $request->input('department_id'))
-                    ->ignore($course->id),
-            ],
+            'code' => ['required', 'string', 'max:50', Rule::unique('courses', 'code')->ignore($course->id)],
             'title' => ['required', 'string', 'max:255'],
             'course_type' => ['required', 'string', Rule::in(['normal', 'module'])],
             'level' => ['required', 'string', 'regex:/^[1-9][0-9]*00$/'],
@@ -222,7 +170,7 @@ class CourseController extends Controller
         ]);
 
         $course->update([
-            'department_id' => $validated['department_id'],
+            'department_id' => null,
             'program_id' => null,
             'code' => $validated['code'],
             'title' => $validated['title'],

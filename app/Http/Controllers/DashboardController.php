@@ -68,7 +68,9 @@ class DashboardController extends Controller
                     ->whereHas('lecturers', fn ($query) => $query->whereKey($user->id))
                     ->count(),
                 'departmentCourses' => $user->department_id
-                    ? Course::query()->where('department_id', $user->department_id)->count()
+                    ? Course::query()
+                        ->whereHas('offerings.program', fn ($query) => $query->where('department_id', $user->department_id))
+                        ->count()
                     : 0,
             ],
             'academicYearStats' => $academicYearStats,

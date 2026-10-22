@@ -22,11 +22,6 @@ import { Label } from '@/components/ui/label';
 import { useSearchParam } from '@/composables/useSearchParam';
 import { matchesSearch } from '@/lib/coursePartitions';
 
-type Department = {
-    id: number;
-    name: string;
-    school: { id: number; name: string };
-};
 type Course = {
     id: number;
     code: string;
@@ -34,12 +29,10 @@ type Course = {
     course_type: 'normal' | 'module';
     level: string | null;
     credit_hours: number | null;
-    department: Department;
 };
 
 const props = defineProps<{
     courses: Course[];
-    departments: Department[];
 }>();
 
 defineOptions({
@@ -49,7 +42,6 @@ defineOptions({
 });
 
 const form = useForm({
-    department_id: '',
     code: '',
     title: '',
     course_type: 'normal',
@@ -58,7 +50,6 @@ const form = useForm({
 });
 const editForm = useForm({
     id: null as number | null,
-    department_id: '',
     code: '',
     title: '',
     course_type: 'normal',
@@ -79,12 +70,7 @@ const filteredCourses = computed(() =>
     props.courses.filter(
         (course) =>
             (!levelFilter.value || course.level === levelFilter.value) &&
-            matchesSearch(courseSearch.value, [
-                course.code,
-                course.title,
-                course.department.name,
-                course.department.school.name,
-            ]),
+            matchesSearch(courseSearch.value, [course.code, course.title]),
     ),
 );
 
@@ -100,7 +86,6 @@ const submit = () =>
     });
 const startEdit = (course: Course) => {
     editForm.id = course.id;
-    editForm.department_id = String(course.department.id);
     editForm.code = course.code;
     editForm.title = course.title;
     editForm.course_type = course.course_type;
@@ -186,19 +171,19 @@ const removeCourse = (course: Course) =>
                 v-model="courseSearch"
                 :shown="filteredCourses.length"
                 :total="courses.length"
-                placeholder="Search courses by code, title or department"
+                placeholder="Search courses by code or title"
             />
 
             <CourseList
                 v-if="filteredCourses.length"
                 :headings="[
                     'Course',
-                    'School and department',
+                    'Level',
                     'Type',
                     'Credit hours',
                     'Actions',
                 ]"
-                columns="minmax(0,2fr) minmax(0,2fr) 110px 110px minmax(170px,auto)"
+                columns="minmax(0,2fr) 110px 110px 110px minmax(170px,auto)"
             >
                 <CourseRow
                     v-for="course in filteredCourses"
@@ -217,13 +202,8 @@ const removeCourse = (course: Course) =>
                             {{ course.title }}
                         </div>
                     </div>
-                    <div class="min-w-0 text-sm">
-                        <div class="truncate text-[#1d2f37]">
-                            {{ course.department.name }}
-                        </div>
-                        <div class="truncate text-xs text-[#66808a]">
-                            {{ course.department.school.name }}
-                        </div>
+                    <div class="text-sm text-[#3c5059]">
+                        {{ course.level ? `Level ${course.level}` : 'Not set' }}
                     </div>
                     <div>
                         <span
@@ -301,8 +281,8 @@ const removeCourse = (course: Course) =>
                     </a>
                 </Button>
                 <p class="text-xs leading-5 text-muted-foreground">
-                    Columns: department_code, code, title, course_type, level,
-                    credit_hours. Use
+                    Columns: code, title, course_type, level, credit_hours.
+                    Use
                     <strong>normal</strong> or <strong>module</strong> for
                     course_type.
                 </p>
@@ -344,24 +324,6 @@ const removeCourse = (course: Course) =>
                         Add a reusable course to the catalogue.
                     </DialogDescription>
                 </DialogHeader>
-                <div class="grid gap-2">
-                    <Label>Department</Label>
-                    <select
-                        v-model="form.department_id"
-                        class="h-10 rounded-md border px-3 text-sm"
-                        required
-                    >
-                        <option value="" disabled>Select department</option>
-                        <option
-                            v-for="department in props.departments"
-                            :key="department.id"
-                            :value="department.id"
-                        >
-                            {{ department.name }} — {{ department.school.name }}
-                        </option>
-                    </select>
-                    <InputError :message="form.errors.department_id" />
-                </div>
                 <div class="grid gap-2">
                     <Label>Level</Label>
                     <select
@@ -441,22 +403,6 @@ const removeCourse = (course: Course) =>
                     </DialogDescription>
                 </DialogHeader>
                 <div class="grid gap-2">
-                    <Label>Department</Label>
-                    <select
-                        v-model="editForm.department_id"
-                        class="h-10 rounded-md border px-3 text-sm"
-                        required
-                    >
-                        <option
-                            v-for="department in props.departments"
-                            :key="department.id"
-                            :value="department.id"
-                        >
-                            {{ department.name }} — {{ department.school.name }}
-                        </option>
-                    </select>
-                </div>
-                <div class="grid gap-2">
                     <Label>Level</Label>
                     <select
                         v-model="editForm.level"
@@ -477,6 +423,7 @@ const removeCourse = (course: Course) =>
                 <div class="grid gap-2">
                     <Label>Course code</Label
                     ><Input v-model="editForm.code" required />
+                    <InputError :message="editForm.errors.code" />
                 </div>
                 <div class="grid gap-2">
                     <Label>Course title</Label

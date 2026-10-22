@@ -349,9 +349,6 @@ class QualityReportController extends Controller
                     : Program::query()
                         ->with('department.school:id')
                         ->findOrFail($programId);
-                $department = $program?->department
-                    ?? Department::query()->with('school:id')->findOrFail($courses->first()->department_id);
-
                 if ($courses->contains(fn (Course $course) => $course->lecturers->isEmpty())) {
                     throw ValidationException::withMessages([
                         'course_ids' => __('Select only courses with assigned lecturers in every selected program.'),
@@ -374,6 +371,20 @@ class QualityReportController extends Controller
                     ]);
                 }
 
+                $lecturer = User::query()->findOrFail($lecturerId);
+                $departmentId = $program?->department_id
+                    ?? $courses->first()->department_id
+                    ?? $lecturer->department_id;
+
+                if ($departmentId === null) {
+                    throw ValidationException::withMessages([
+                        'program_id' => __('Select the program this report is for.'),
+                    ]);
+                }
+
+                $department = $program?->department
+                    ?? Department::query()->with('school:id')->findOrFail($departmentId);
+
                 $filePath = $request->file('report_file')?->store('quality-reports', 'public');
                 if ($filePath !== null) {
                     $filePaths[] = $filePath;
@@ -383,7 +394,7 @@ class QualityReportController extends Controller
                     'program' => $program,
                     'sectionId' => $sectionId,
                     'department' => $department,
-                    'lecturer' => User::query()->findOrFail($lecturerId),
+                    'lecturer' => $lecturer,
                     'courses' => $courses,
                     'filePath' => $filePath,
                 ];

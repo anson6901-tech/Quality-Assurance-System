@@ -319,7 +319,10 @@ class CourseAssignmentController extends Controller
      */
     private function authorizeCourse(User $user, Course $course, $cells): void
     {
-        if ($user->canManageQualityStructure() || $course->department_id === $user->department_id) {
+        if (
+            $user->canManageQualityStructure()
+            || ($course->department_id !== null && $course->department_id === $user->department_id)
+        ) {
             return;
         }
 

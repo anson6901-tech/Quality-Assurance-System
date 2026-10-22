@@ -44,8 +44,6 @@ type Course = {
     title: string;
     level: string | null;
     courseType: string;
-    department: string;
-    school: string;
     mountedLevel?: string;
 };
 type Offering = {
@@ -429,8 +427,7 @@ const semesterLabel = (semester: Semester) => {
                             </span>
                             <span class="text-sm text-muted-foreground">
                                 Level {{ course.level ?? 'not set' }} ·
-                                {{ course.courseType }} · {{ course.school }} /
-                                {{ course.department }}
+                                {{ course.courseType }}
                             </span>
                         </span>
                         <span
@@ -471,12 +468,11 @@ const semesterLabel = (semester: Semester) => {
                     v-if="mountedCourses.length"
                     :headings="[
                         'Course',
-                        'School and department',
                         'Type',
                         'Lecturer',
                         'Action',
                     ]"
-                    columns="minmax(0,2fr) minmax(0,2fr) 100px minmax(140px,1fr) minmax(190px,auto)"
+                    columns="minmax(0,2fr) 100px minmax(140px,1fr) minmax(190px,auto)"
                 >
                     <CourseRow
                         v-for="course in mountedCourses"
@@ -493,14 +489,6 @@ const semesterLabel = (semester: Semester) => {
                             </div>
                             <div class="truncate text-sm text-[#3c5059]">
                                 {{ course.title }}
-                            </div>
-                        </div>
-                        <div class="min-w-0 text-sm">
-                            <div class="truncate text-[#1d2f37]">
-                                {{ course.department }}
-                            </div>
-                            <div class="truncate text-xs text-[#66808a]">
-                                {{ course.school }}
                             </div>
                         </div>
                         <div>
