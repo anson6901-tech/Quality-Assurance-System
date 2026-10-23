@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label';
 
 type Option = { id: number; name: string };
 type Semester = Option & { academic_year_id: number };
-type ItemStatus = 'ready' | 'needs_choice' | 'error' | 'created';
+type ItemStatus = 'ready' | 'needs_choice' | 'error';
 type Item = {
     id: number;
     name: string;
@@ -33,7 +33,7 @@ type Item = {
     lecturer: string | null;
     part: string | null;
     candidates: { key: string; label: string }[];
-    reportCount: number;
+    replacesDraft: boolean;
 };
 type Batch = {
     id: number;
@@ -43,7 +43,6 @@ type Batch = {
     semester: string | null;
     category: string;
     items: Item[];
-    draftReports: number;
 };
 type BatchSummary = {
     id: number;
@@ -52,7 +51,6 @@ type BatchSummary = {
     category: string;
     files: number;
     ready: number;
-    created: number;
     createdAt: string;
 };
 
@@ -61,6 +59,7 @@ const props = defineProps<{
     semesters: Semester[];
     batches: BatchSummary[];
     batch: Batch | null;
+    waitingDrafts: { semester: string; count: number }[];
     supervisors: { id: number; name: string; email: string }[];
     maxFileMegabytes: number;
 }>();
@@ -173,10 +172,14 @@ const sendFile = async (file: File, upload: Upload) => {
             return;
         }
 
-        const { item } = (await response.json()) as { item: Item };
-        items.value = [...items.value, item].sort((a, b) =>
-            a.name.localeCompare(b.name),
-        );
+        const { item, replaced } = (await response.json()) as {
+            item: Item;
+            replaced: number[];
+        };
+        items.value = [
+            ...items.value.filter((entry) => !replaced.includes(entry.id)),
+            item,
+        ].sort((a, b) => a.name.localeCompare(b.name));
         upload.state = 'done';
     } catch {
         upload.state = 'failed';
@@ -215,7 +218,7 @@ const onPicked = (event: Event) => {
 };
 
 // Review
-type Filter = 'all' | 'ready' | 'attention' | 'created';
+type Filter = 'all' | 'ready' | 'attention';
 const filter = ref<Filter>('all');
 const counts = computed(() => ({
     all: items.value.length,
@@ -223,7 +226,6 @@ const counts = computed(() => ({
     attention: items.value.filter(
         (item) => item.status === 'error' || item.status === 'needs_choice',
     ).length,
-    created: items.value.filter((item) => item.status === 'created').length,
 }));
 const visibleItems = computed(() =>
     items.value.filter((item) =>
@@ -238,7 +240,6 @@ const filters: { key: Filter; label: string }[] = [
     { key: 'all', label: 'All' },
     { key: 'ready', label: 'Ready' },
     { key: 'attention', label: 'Needs attention' },
-    { key: 'created', label: 'Created' },
 ];
 
 const choices = ref<Record<number, string>>({});
@@ -286,25 +287,22 @@ const createDrafts = () => {
 };
 
 const submitForm = useForm({ supervisor_id: '' as number | '' });
+const waitingCount = computed(() =>
+    props.waitingDrafts.reduce((total, group) => total + group.count, 0),
+);
 const submitDrafts = () =>
-    props.batch &&
-    submitForm.post(`/quality/bulk-upload/batches/${props.batch.id}/submit`, {
-        preserveScroll: true,
-    });
+    submitForm.post('/quality/bulk-upload/submit', { preserveScroll: true });
 
 const statusStyle: Record<ItemStatus, string> = {
     ready: 'border-[#9fd8b8] bg-[#edf9f2] text-[#075b2e]',
     needs_choice:
         'border-[#f0d3a4] bg-[#fffaf1] text-[#8a5a12] dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200',
     error: 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200',
-    created:
-        'border-[#bcd3f5] bg-[#eef4fd] text-[#1d4f91] dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200',
 };
 const statusLabel: Record<ItemStatus, string> = {
     ready: 'Ready',
     needs_choice: 'Choose part',
     error: 'Problem',
-    created: 'Draft created',
 };
 const megabytes = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
 </script>
@@ -455,7 +453,7 @@ const megabytes = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
                     <span class="block font-semibold">
                         {{ summary.academicYear }} · {{ summary.semester }}
                     </span>
-                    {{ summary.files }} files · {{ summary.created }} created ·
+                    {{ summary.files }} files · {{ summary.ready }} ready ·
                     {{ new Date(summary.createdAt).toLocaleDateString() }}
                 </Link>
             </div>
@@ -649,13 +647,11 @@ const megabytes = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
                                 {{ item.problem }}
                             </p>
                             <p
-                                v-if="item.status === 'created'"
+                                v-if="item.replacesDraft"
                                 class="text-xs text-[#1d4f91] dark:text-blue-200"
                             >
-                                {{ item.reportCount }} draft report{{
-                                    item.reportCount === 1 ? '' : 's'
-                                }}
-                                created.
+                                Will replace the PDF in your existing draft for
+                                this lecturer.
                             </p>
                             <div
                                 v-if="item.status === 'needs_choice'"
@@ -694,10 +690,7 @@ const megabytes = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
                                 :class="statusStyle[item.status]"
                             >
                                 <CheckCircle2
-                                    v-if="
-                                        item.status === 'ready' ||
-                                        item.status === 'created'
-                                    "
+                                    v-if="item.status === 'ready'"
                                     class="size-3.5"
                                 />
                                 <CircleAlert
@@ -708,7 +701,6 @@ const megabytes = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
                                 {{ statusLabel[item.status] }}
                             </span>
                             <Button
-                                v-if="item.status !== 'created'"
                                 type="button"
                                 variant="ghost"
                                 size="icon"
@@ -735,57 +727,56 @@ const megabytes = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
                     }}
                 </p>
             </section>
-
-            <form
-                v-if="batch.draftReports"
-                class="flex flex-wrap items-end gap-3 rounded-xl border border-[#9fd8b8] bg-white p-5 shadow-sm"
-                @submit.prevent="submitDrafts"
-            >
-                <div class="grid min-w-0 flex-1 gap-2">
-                    <h2
-                        class="flex items-center gap-2 text-lg font-semibold text-[#063f22]"
-                    >
-                        <Send class="size-5 text-[#007a2f]" /> 4. Submit to a QA
-                        Supervisor
-                    </h2>
-                    <p class="text-sm text-muted-foreground">
-                        {{ batch.draftReports }} draft report{{
-                            batch.draftReports === 1 ? '' : 's'
-                        }}
-                        from this batch are waiting. You can also open them on
-                        Upload Reports first.
-                    </p>
-                    <select
-                        v-model="submitForm.supervisor_id"
-                        class="h-10 rounded-md border px-3 text-sm"
-                        aria-label="QA Supervisor"
-                        required
-                    >
-                        <option value="" disabled>
-                            Choose a QA Supervisor
-                        </option>
-                        <option
-                            v-for="supervisor in supervisors"
-                            :key="supervisor.id"
-                            :value="supervisor.id"
-                        >
-                            {{ supervisor.name }} — {{ supervisor.email }}
-                        </option>
-                    </select>
-                    <InputError :message="submitForm.errors.supervisor_id" />
-                </div>
-                <Button
-                    type="submit"
-                    class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                    :disabled="
-                        submitForm.processing || !submitForm.supervisor_id
-                    "
-                >
-                    <Send /> Submit {{ batch.draftReports }} report{{
-                        batch.draftReports === 1 ? '' : 's'
-                    }}
-                </Button>
-            </form>
         </template>
+
+        <form
+            v-if="waitingCount"
+            class="flex flex-wrap items-end gap-3 rounded-xl border border-[#9fd8b8] bg-white p-5 shadow-sm"
+            @submit.prevent="submitDrafts"
+        >
+            <div class="grid min-w-0 flex-1 gap-2">
+                <h2
+                    class="flex items-center gap-2 text-lg font-semibold text-[#063f22]"
+                >
+                    <Send class="size-5 text-[#007a2f]" /> Submit drafts to a QA
+                    Supervisor
+                </h2>
+                <p class="text-sm text-muted-foreground">
+                    You have {{ waitingCount }} bulk-uploaded draft report{{
+                        waitingCount === 1 ? '' : 's'
+                    }}
+                    waiting ({{
+                        waitingDrafts
+                            .map((group) => `${group.semester}: ${group.count}`)
+                            .join(', ')
+                    }}). You can also check them on Upload Reports first.
+                </p>
+                <select
+                    v-model="submitForm.supervisor_id"
+                    class="h-10 rounded-md border px-3 text-sm"
+                    aria-label="QA Supervisor"
+                    required
+                >
+                    <option value="" disabled>Choose a QA Supervisor</option>
+                    <option
+                        v-for="supervisor in supervisors"
+                        :key="supervisor.id"
+                        :value="supervisor.id"
+                    >
+                        {{ supervisor.name }} — {{ supervisor.email }}
+                    </option>
+                </select>
+                <InputError :message="submitForm.errors.supervisor_id" />
+            </div>
+            <Button
+                type="submit"
+                class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                :disabled="submitForm.processing || !submitForm.supervisor_id"
+            >
+                <Send /> Submit {{ waitingCount }} report{{
+                    waitingCount === 1 ? '' : 's'
+                }}
+            </Button>
+        </form>
     </div>
 </template>

@@ -31,8 +31,6 @@ class ReportImportItem extends Model
 
     public const ERROR = 'error';
 
-    public const CREATED = 'created';
-
     /**
      * @return array<string, string>
      */

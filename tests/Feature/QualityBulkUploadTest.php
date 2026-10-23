@@ -119,14 +119,35 @@ it('matches files by name and explains the ones it cannot use', function () {
         ->and(uploadFile($this, $data['officer'], $batch, pdf('NURS999_SON-1001.pdf')))
         ->problem->toContain('No course with the code NURS999')
         ->and(uploadFile($this, $data['officer'], $batch, pdf('NURS101_XYZ-9.pdf')))
-        ->problem->toContain('No staff member with the ID XYZ-9')
-        ->and(uploadFile($this, $data['officer'], $batch, pdf('NURS101_SON-1001 (1).pdf')))
-        ->problem->toContain('Same course part and lecturer');
+        ->problem->toContain('No staff member with the ID XYZ-9');
 
     $notPdf = UploadedFile::fake()->createWithContent('NURS101_SON-1001.pdf', 'not really a pdf');
     expect(uploadFile($this, $data['officer'], $batch, $notPdf))
         ->status->toBe('error')
         ->problem->toBe('This file is not a valid PDF.');
+});
+
+it('replaces a waiting file when a corrected one is uploaded again', function () {
+    $data = bulkSetup();
+    $batch = newBatch($this, $data);
+    $upload = fn (UploadedFile $file) => $this->actingAs($data['officer'])
+        ->postJson("/quality/bulk-upload/batches/{$batch->id}/files", ['file' => $file])
+        ->assertOk()
+        ->json();
+
+    $broken = $upload(UploadedFile::fake()->createWithContent('NURS101_SON-1001.pdf', 'not really a pdf'));
+    expect($broken['item']['status'])->toBe('error');
+
+    $fixed = $upload(pdf('NURS101_SON-1001.pdf'));
+    expect($fixed['item']['status'])->toBe('ready')
+        ->and($fixed['replaced'])->toBe([$broken['item']['id']]);
+
+    // A copy of the same report also replaces it rather than being flagged as a duplicate.
+    $copy = $upload(pdf('NURS101_SON-1001 (1).pdf'));
+    expect($copy['item']['status'])->toBe('ready')
+        ->and($copy['replaced'])->toBe([$fixed['item']['id']])
+        ->and($batch->items()->count())->toBe(1)
+        ->and(Storage::disk('local')->allFiles())->toHaveCount(1);
 });
 
 it('lets the officer choose the part, then creates drafts like a single upload', function () {
@@ -164,14 +185,38 @@ it('lets the officer choose the part, then creates drafts like a single upload',
 
     Storage::disk('public')->assertExists($reports[0]->file_path);
     expect(Storage::disk('local')->allFiles())->toBe([])
-        ->and(ReportImportItem::query()->where('status', 'created')->count())->toBe(2);
+        ->and(ReportImportItem::query()->count())->toBe(0)
+        ->and(ReportImportBatch::query()->whereKey($batch->id)->exists())->toBeFalse();
 
-    // The same file again is now recognised as already reported.
-    expect(uploadFile($this, $data['officer'], newBatch($this, $data), pdf('NURS101_SON-1001.pdf')))
-        ->problem->toBe('A report already exists for this course part and lecturer.');
+    // Uploading the same report again replaces the PDF in the officer's own draft.
+    $oldPath = $reports[0]->file_path;
+    $again = newBatch($this, $data);
+    expect(uploadFile($this, $data['officer'], $again, pdf('NURS101_SON-1001.pdf')))
+        ->status->toBe('ready')
+        ->replacesDraft->toBeTrue();
+
+    $this->actingAs($data['officer'])->post("/quality/bulk-upload/batches/{$again->id}/drafts")->assertRedirect('/quality/bulk-upload');
+
+    expect(QualityReport::query()->count())->toBe(2)
+        ->and($reports[0]->refresh()->file_path)->not->toBe($oldPath);
+    Storage::disk('public')->assertMissing($oldPath);
+    Storage::disk('public')->assertExists($reports[0]->file_path);
 });
 
-it('submits the batch drafts to a supervisor', function () {
+it('keeps only files that still need work in a batch', function () {
+    $data = bulkSetup();
+    $batch = newBatch($this, $data);
+    uploadFile($this, $data['officer'], $batch, pdf('NURS101_SON-1001.pdf'));
+    uploadFile($this, $data['officer'], $batch, pdf('NURS999_SON-1001.pdf'));
+
+    $this->actingAs($data['officer'])
+        ->post("/quality/bulk-upload/batches/{$batch->id}/drafts")
+        ->assertRedirect();
+
+    expect($batch->items()->pluck('original_name')->all())->toBe(['NURS999_SON-1001.pdf']);
+});
+
+it('submits waiting bulk drafts to a supervisor, and protects reports in review', function () {
     $data = bulkSetup();
     $supervisor = User::factory()->create(['university_role' => UniversityRole::QaSupervisor]);
     $batch = newBatch($this, $data);
@@ -179,19 +224,27 @@ it('submits the batch drafts to a supervisor', function () {
     $this->actingAs($data['officer'])->post("/quality/bulk-upload/batches/{$batch->id}/drafts");
 
     $this->actingAs($data['officer'])
-        ->get("/quality/bulk-upload?batch={$batch->id}")
+        ->get('/quality/bulk-upload')
         ->assertInertia(fn (Assert $page) => $page
             ->component('quality/bulk-upload/Index')
-            ->where('batch.draftReports', 1)
-            ->has('batch.items', 1));
+            ->where('batch', null)
+            ->where('waitingDrafts.0.count', 1));
 
     $this->actingAs($data['officer'])
-        ->post("/quality/bulk-upload/batches/{$batch->id}/submit", ['supervisor_id' => $supervisor->id])
+        ->get("/quality/bulk-upload?batch={$batch->id}")
+        ->assertRedirect('/quality/bulk-upload');
+
+    $this->actingAs($data['officer'])
+        ->post('/quality/bulk-upload/submit', ['supervisor_id' => $supervisor->id])
         ->assertRedirect();
 
     expect(QualityReport::first())
         ->status->toBe('submitted')
         ->assigned_supervisor_id->toBe($supervisor->id);
+
+    expect(uploadFile($this, $data['officer'], newBatch($this, $data), pdf('NURS101_SON-1001.pdf')))
+        ->status->toBe('error')
+        ->problem->toContain('already in review or published');
 });
 
 it('only matches courses in the uploader area and keeps batches private', function () {

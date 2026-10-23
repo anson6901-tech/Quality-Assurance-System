@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Support\Area;
 use App\Support\CourseBoard;
 use App\Support\CoursePartitions;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -20,7 +21,7 @@ use Illuminate\Support\Str;
 class ExpectedReports
 {
     /**
-     * @return Collection<int, array{key: string, courseId: int, courseCode: string, courseTitle: string, partKey: string, partLabel: string, cells: array<int, array{program_id: int|null, section_id: int|null}>, lecturerId: int, lecturerName: string, staffId: string, fileName: string, hasReport: bool}>
+     * @return Collection<int, array{key: string, courseId: int, courseCode: string, courseTitle: string, partKey: string, partLabel: string, cells: array<int, array{program_id: int|null, section_id: int|null}>, lecturerId: int, lecturerName: string, staffId: string, fileName: string, hasReport: bool, replaceable: bool}>
      */
     public static function for(User $actor, int $semesterId): Collection
     {
@@ -70,7 +71,7 @@ class ExpectedReports
         return $expected->map(fn (array $item) => [
             ...$item,
             'fileName' => self::fileName($item, $partsPerLecturerCourse["{$item['courseId']}|{$item['lecturerId']}"] > 1),
-            'hasReport' => self::reportExists($item, $semesterId),
+            ...self::reportState($item, $semesterId, $actor),
         ]);
     }
 
@@ -100,9 +101,30 @@ class ExpectedReports
     }
 
     /**
+     * Whether reports already exist for this course part and lecturer, and whether they can be
+     * replaced: only the uploader's own drafts can, since anything submitted is in review.
+     *
      * @param  array<string, mixed>  $item
+     * @return array{hasReport: bool, replaceable: bool}
      */
-    public static function reportExists(array $item, int $semesterId): bool
+    public static function reportState(array $item, int $semesterId, User $actor): array
+    {
+        $existing = self::existingReports($item, $semesterId)->get(['id', 'status', 'uploaded_by']);
+
+        return [
+            'hasReport' => $existing->isNotEmpty(),
+            'replaceable' => $existing->isNotEmpty()
+                && $existing->every(fn (QualityReport $report) => $report->status === 'draft' && $report->uploaded_by === $actor->id),
+        ];
+    }
+
+    /**
+     * Reports for this lecturer, course and semester in any of the item's program sections.
+     *
+     * @param  array<string, mixed>  $item
+     * @return Builder<QualityReport>
+     */
+    public static function existingReports(array $item, int $semesterId)
     {
         return QualityReport::query()
             ->where('semester_id', $semesterId)
@@ -115,7 +137,6 @@ class ExpectedReports
                         $cell['section_id'] === null ? $query->whereNull('section_id') : $query->where('section_id', $cell['section_id']);
                     });
                 }
-            })
-            ->exists();
+            });
     }
 }

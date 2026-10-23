@@ -53,7 +53,7 @@ Route::middleware(['auth', 'verified'])
         Route::post('bulk-upload/batches/{batch}/files', [BulkUploadController::class, 'upload'])->name('bulk-upload.upload');
         Route::post('bulk-upload/batches/{batch}/recheck', [BulkUploadController::class, 'recheck'])->name('bulk-upload.recheck');
         Route::post('bulk-upload/batches/{batch}/drafts', [BulkUploadController::class, 'createDrafts'])->name('bulk-upload.drafts');
-        Route::post('bulk-upload/batches/{batch}/submit', [BulkUploadController::class, 'submit'])->name('bulk-upload.submit');
+        Route::post('bulk-upload/submit', [BulkUploadController::class, 'submit'])->name('bulk-upload.submit');
         Route::patch('bulk-upload/batches/{batch}/items/{item}', [BulkUploadController::class, 'choose'])->name('bulk-upload.choose');
         Route::delete('bulk-upload/batches/{batch}/items/{item}', [BulkUploadController::class, 'destroyItem'])->name('bulk-upload.destroy-item');
         Route::post('reports', [QualityReportController::class, 'store'])->name('reports.store');

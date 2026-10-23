@@ -62,8 +62,8 @@ class ReportFileMatcher
      */
     private function found(array $item): array
     {
-        return $item['hasReport']
-            ? [...$this->error(__('A report already exists for this course part and lecturer.')), 'match' => $item]
+        return $item['hasReport'] && ! $item['replaceable']
+            ? [...$this->error(__('A report for this course part and lecturer is already in review or published, so it cannot be replaced here.')), 'match' => $item]
             : ['status' => ReportImportItem::READY, 'problem' => null, 'match' => $item, 'candidates' => []];
     }
 
@@ -115,7 +115,7 @@ class ReportFileMatcher
      * The file name without extension or the copy markers computers add, such as " (1)" or
      * " copy", so a second copy of a file is caught as a duplicate rather than unreadable.
      */
-    private static function stem(string $originalName): string
+    public static function stem(string $originalName): string
     {
         return trim((string) preg_replace('/(\s*\(\d+\)|[\s_-]+copy(\s*\d+)?)+$/i', '', pathinfo($originalName, PATHINFO_FILENAME)));
     }
