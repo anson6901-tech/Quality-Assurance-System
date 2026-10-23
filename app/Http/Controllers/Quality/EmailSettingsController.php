@@ -12,6 +12,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 use Throwable;
 
 /**
@@ -30,6 +31,18 @@ class EmailSettingsController extends Controller
             'settings' => [
                 'enabled' => $settings->enabled,
                 'provider' => $settings->provider,
+                'microsoftMethod' => $settings->microsoft_method ?? EmailSetting::MICROSOFT_SMTP,
+                'smtpHost' => $settings->smtp_host,
+                'smtpPort' => $settings->smtp_port,
+                'smtpEncryption' => $settings->smtp_encryption,
+                'smtpAuth' => $settings->smtp_auth,
+                'smtpUsername' => $settings->smtp_username,
+                'smtpAuthType' => $settings->smtp_auth_type,
+                'hasSmtpPassword' => filled($settings->smtp_password),
+                'tokenUrl' => $settings->token_url,
+                'tokenScope' => $settings->token_scope,
+                'smtpAllowUtf8' => $settings->smtp_allow_utf8,
+                'providerLabel' => $settings->providerLabel(),
                 'fromAddress' => $settings->fromAddress(),
                 'gmailAddress' => $settings->gmail_address,
                 'hasGmailAppPassword' => filled($settings->gmail_app_password),
@@ -63,15 +76,30 @@ class EmailSettingsController extends Controller
         ]);
         $microsoft = $request->input('provider') === EmailSetting::MICROSOFT_365;
         $gmail = $request->input('provider') === EmailSetting::GMAIL;
+        $graph = $microsoft && $request->input('microsoft_method') === EmailSetting::MICROSOFT_GRAPH;
+        $smtp = $microsoft && ! $graph;
+        $smtpAuth = $smtp && $request->boolean('smtp_auth');
+        $token = $smtpAuth && $request->input('smtp_auth_type') === EmailSetting::AUTH_TOKEN;
         $required = fn (bool $forProvider) => $forProvider && $request->boolean('enabled') ? 'required' : 'nullable';
 
         $validated = $request->validate([
             'enabled' => ['required', 'boolean'],
             'provider' => ['required', Rule::in([EmailSetting::MICROSOFT_365, EmailSetting::GMAIL])],
-            'tenant_id' => [$required($microsoft), 'string', 'max:100'],
-            'client_id' => [$required($microsoft), 'string', 'max:100'],
+            'microsoft_method' => ['required', Rule::in([EmailSetting::MICROSOFT_SMTP, EmailSetting::MICROSOFT_GRAPH])],
+            'smtp_host' => [$smtp ? 'required' : 'nullable', 'string', 'max:255'],
+            'smtp_port' => [$smtp ? 'required' : 'nullable', 'integer', 'between:1,65535'],
+            'smtp_encryption' => [$smtp ? 'required' : 'nullable', Rule::in([EmailSetting::ENCRYPTION_SSL, EmailSetting::ENCRYPTION_STARTTLS])],
+            'smtp_auth' => ['boolean'],
+            'smtp_allow_utf8' => ['boolean'],
+            'smtp_username' => [$required($smtpAuth), 'string', 'max:255'],
+            'smtp_auth_type' => [$smtpAuth ? 'required' : 'nullable', Rule::in([EmailSetting::AUTH_PASSWORD, EmailSetting::AUTH_TOKEN])],
+            'smtp_password' => ['nullable', 'string', 'max:500'],
+            'token_url' => [$required($token), 'url:https', 'max:255'],
+            'token_scope' => [$required($token), 'string', 'max:255'],
+            'tenant_id' => [$required($graph), 'string', 'max:100'],
+            'client_id' => [$required($graph || $token), 'string', 'max:100'],
             'client_secret' => ['nullable', 'string', 'max:500'],
-            'sender_address' => [$required($microsoft), 'email', 'max:255'],
+            'sender_address' => [$required($graph), 'email', 'max:255'],
             'gmail_address' => [$required($gmail), 'email', 'max:255'],
             'gmail_app_password' => ['nullable', 'string', 'max:100'],
             'sender_name' => ['nullable', 'string', 'max:100'],
@@ -85,32 +113,39 @@ class EmailSettingsController extends Controller
         $settings = EmailSetting::current();
 
         // A blank secret keeps the saved one, so it never has to be shown again.
-        foreach (['client_secret', 'gmail_app_password'] as $secret) {
+        foreach (['client_secret', 'gmail_app_password', 'smtp_password'] as $secret) {
             if (blank($validated[$secret] ?? null)) {
                 unset($validated[$secret]);
             }
         }
 
-        if ($validated['enabled'] && $microsoft && blank($validated['client_secret'] ?? $settings->client_secret)) {
+        if ($validated['enabled'] && ($graph || $token) && blank($validated['client_secret'] ?? $settings->client_secret)) {
             throw ValidationException::withMessages(['client_secret' => __('Enter the client secret to switch email on.')]);
+        }
+
+        if ($validated['enabled'] && $smtpAuth && ! $token && blank($validated['smtp_password'] ?? $settings->smtp_password)) {
+            throw ValidationException::withMessages(['smtp_password' => __('Enter the password to switch email on.')]);
         }
 
         if ($validated['enabled'] && $gmail && blank($validated['gmail_app_password'] ?? $settings->gmail_app_password)) {
             throw ValidationException::withMessages(['gmail_app_password' => __('Enter the Gmail app password to switch email on.')]);
         }
 
-        $connectionChanged = collect(['provider', 'tenant_id', 'client_id', 'client_secret', 'sender_address', 'gmail_address', 'gmail_app_password'])
+        $connectionChanged = collect(['provider', 'microsoft_method', 'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_auth', 'smtp_username', 'smtp_auth_type', 'smtp_password', 'token_url', 'token_scope', 'tenant_id', 'client_id', 'client_secret', 'sender_address', 'gmail_address', 'gmail_app_password'])
             ->contains(fn (string $key) => array_key_exists($key, $validated) && $validated[$key] !== $settings->{$key});
 
         $settings->fill([
-            ...$validated,
+            ...array_filter($validated, fn ($value) => $value !== null),
+            'smtp_auth' => $request->boolean('smtp_auth'),
+            'smtp_allow_utf8' => $request->boolean('smtp_allow_utf8', true),
+            'sender_address' => $validated['sender_address'] ?? null,
             'app_url' => isset($validated['app_url']) ? rtrim($validated['app_url'], '/') : null,
             'updated_by' => $request->user()->id,
             ...($connectionChanged ? ['last_tested_at' => null, 'last_test_succeeded' => null, 'last_test_message' => null] : []),
         ])->save();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => $settings->enabled
-            ? __('Email settings saved. Emails are being sent through :provider.', ['provider' => $settings->usesGmail() ? 'Gmail' : 'Microsoft 365'])
+            ? __('Email settings saved. Emails are being sent through :provider.', ['provider' => $settings->providerLabel()])
             : __('Email settings saved. Email sending is switched off.')]);
 
         return to_route('quality.email-settings.show');
@@ -133,7 +168,7 @@ class EmailSettingsController extends Controller
             throw ValidationException::withMessages([
                 'recipient' => $settings->usesGmail()
                     ? __('Save the Gmail address and app password first.')
-                    : __('Save the tenant ID, client ID, client secret and sender mailbox first.'),
+                    : __('Fill in and save the connection details first.'),
             ]);
         }
 
@@ -143,7 +178,7 @@ class EmailSettingsController extends Controller
         try {
             Mail::mailer($settings->mailerName())->raw(
                 __("This is a test email from QA Insight.\n\nIf you can read this, :provider email is working and notifications will be delivered from :sender.", [
-                    'provider' => $settings->usesGmail() ? 'Gmail' : 'Microsoft 365',
+                    'provider' => $settings->providerLabel(),
                     'sender' => $settings->fromAddress(),
                 ]),
                 fn ($message) => $message
@@ -156,13 +191,13 @@ class EmailSettingsController extends Controller
         } catch (Throwable $exception) {
             report($exception);
             $succeeded = false;
-            $message = self::explainFailure($settings, $exception->getMessage());
+            $message = self::explainFailure($settings, $exception->getMessage()).self::smtpLog($exception);
         }
 
         $settings->refresh()->forceFill([
             'last_tested_at' => now(),
             'last_test_succeeded' => $succeeded,
-            'last_test_message' => str($message)->limit(1000)->toString(),
+            'last_test_message' => str($message)->limit(4000)->toString(),
         ])->save();
 
         Inertia::flash('toast', [
@@ -174,15 +209,39 @@ class EmailSettingsController extends Controller
     }
 
     /**
-     * Adds a plain-language hint to the most common Gmail sign-in failure.
+     * Adds a plain-language hint to the most common sign-in failures.
      */
     private static function explainFailure(EmailSetting $settings, string $message): string
     {
-        if ($settings->usesGmail() && str_contains($message, '535')) {
-            return __('Gmail did not accept the address and app password. Use an app password (not the normal Gmail password) from an account with 2-Step Verification turned on.')
-                .' '.$message;
+        $hint = match (true) {
+            $settings->usesGmail() && str_contains($message, '535') => __('Gmail did not accept the address and app password. Use an app password (not the normal Gmail password) from an account with 2-Step Verification turned on.'),
+            $settings->mailerName() === 'microsoft-smtp' && str_contains($message, '535') => __('Microsoft 365 accepted the app but the mailbox refused the token. Check that the app has the SMTP.SendAsApp permission with admin consent, that its service principal is registered in Exchange Online with access to the mailbox, and that SMTP AUTH is turned on for the mailbox.'),
+            $settings->mailerName() === 'microsoft-smtp' && preg_match('/connect|timed out|Connection refused/i', $message) === 1 => __('Could not reach smtp.office365.com on port 587. Check that the server can make outgoing connections on that port.'),
+            default => null,
+        };
+
+        return $hint ? $hint.' '.$message : $message;
+    }
+
+    /**
+     * The SMTP conversation of a failed test send, like Keycloak's "Debug SMTP", with the
+     * sign-in line hidden because it carries the access token or password.
+     */
+    private static function smtpLog(Throwable $exception): string
+    {
+        $debug = $exception instanceof TransportExceptionInterface ? trim($exception->getDebug()) : '';
+
+        if ($debug === '') {
+            return '';
         }
 
-        return $message;
+        $lines = collect(preg_split('/\R/', $debug))
+            ->map(fn (string $line) => preg_match('/^>\s*AUTH\b/i', $line) === 1 || preg_match('/^>\s*[A-Za-z0-9+\/=]{20,}$/', $line) === 1
+                ? '> AUTH … (hidden)'
+                : $line)
+            ->take(-20)
+            ->implode("\n");
+
+        return "\n\nSMTP log:\n".$lines;
     }
 }

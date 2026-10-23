@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\UniversityRole;
+use App\Mail\MicrosoftSmtpTransport;
 use App\Models\AcademicYear;
 use App\Models\Department;
 use App\Models\EmailSetting;
@@ -10,6 +11,8 @@ use App\Models\User;
 use App\Notifications\ReportWorkflowNotification;
 use App\Notifications\ResetPasswordNotification;
 use App\Notifications\WelcomeNotification;
+use App\Providers\AppServiceProvider;
+use App\Support\MicrosoftOAuthToken;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Http\UploadedFile;
@@ -23,6 +26,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mailer\SentMessage;
+use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\RawMessage;
 
 const GRAPH_TOKEN_URL = 'https://login.microsoftonline.com/*';
@@ -33,6 +37,7 @@ function configureEmail(array $overrides = []): EmailSetting
     $settings = EmailSetting::current();
     $settings->fill([
         'enabled' => true,
+        'microsoft_method' => 'graph',
         'tenant_id' => 'tenant-123',
         'client_id' => 'client-456',
         'client_secret' => 'super-secret',
@@ -111,6 +116,7 @@ it('saves settings with the client secret encrypted and never sent back', functi
     $payload = [
         'enabled' => true,
         'provider' => 'microsoft365',
+        'microsoft_method' => 'graph',
         'tenant_id' => 'tenant-123',
         'client_id' => 'client-456',
         'client_secret' => 'super-secret',
@@ -147,6 +153,29 @@ it('requires the connection details before email can be switched on', function (
         ->put('/quality/email-settings', [
             'enabled' => true,
             'provider' => 'microsoft365',
+            'microsoft_method' => 'smtp',
+            'smtp_host' => '',
+            'smtp_port' => '',
+            'smtp_encryption' => 'starttls',
+            'smtp_auth' => true,
+            'smtp_username' => '',
+            'smtp_auth_type' => 'token',
+            'token_url' => '',
+            'token_scope' => '',
+            'client_id' => '',
+            'client_secret' => '',
+            'send_welcome' => true,
+            'send_review_requests' => true,
+            'send_report_published' => true,
+            'send_report_returned' => true,
+        ])
+        ->assertInvalid(['smtp_host', 'smtp_port', 'smtp_username', 'token_url', 'token_scope', 'client_id']);
+
+    $this->actingAs(emailAdmin())
+        ->put('/quality/email-settings', [
+            'enabled' => true,
+            'provider' => 'microsoft365',
+            'microsoft_method' => 'graph',
             'tenant_id' => '',
             'client_id' => '',
             'client_secret' => '',
@@ -340,6 +369,7 @@ function gmailPayload(array $overrides = []): array
     return [
         'enabled' => true,
         'provider' => 'gmail',
+        'microsoft_method' => 'smtp',
         'gmail_address' => 'uhas.qa.insight@gmail.com',
         'gmail_app_password' => 'abcd efgh ijkl mnop',
         'sender_name' => 'UHAS QA Insight',
@@ -459,4 +489,190 @@ it('sends workflow emails through gmail once it is switched on', function () {
     $sent = $smtp->transport->messages()->first()?->getOriginalMessage();
     expect($sent?->getTo()[0]->getAddress())->toBe('lecturer@uhas.edu.gh')
         ->and($sent?->getFrom()[0]->getAddress())->toBe('uhas.qa.insight@gmail.com');
+});
+
+function microsoftSmtpPayload(array $overrides = []): array
+{
+    return [
+        'enabled' => true,
+        'provider' => 'microsoft365',
+        'microsoft_method' => 'smtp',
+        'smtp_host' => 'smtp.office365.com',
+        'smtp_port' => 587,
+        'smtp_encryption' => 'starttls',
+        'smtp_auth' => true,
+        'smtp_username' => 'selfservice@uhas.edu.gh',
+        'smtp_auth_type' => 'token',
+        'token_url' => 'https://login.microsoftonline.com/1b051f28-5e5a-4586-aad2-b3fa77fda86d/oauth2/v2.0/token',
+        'token_scope' => 'https://outlook.office365.com/.default',
+        'client_id' => 'edb16604-2f81-40f1-9483-067f3cb9fc24',
+        'client_secret' => 'smtp-secret',
+        'sender_name' => 'UHAS QA Insight',
+        'app_url' => 'https://qa.uhas.edu.gh',
+        'send_welcome' => true,
+        'send_review_requests' => true,
+        'send_report_published' => true,
+        'send_report_returned' => true,
+        ...$overrides,
+    ];
+}
+
+it('sends microsoft 365 email through smtp.office365.com with an oauth token', function () {
+    $this->actingAs(emailAdmin())
+        ->put('/quality/email-settings', microsoftSmtpPayload())
+        ->assertRedirect('/quality/email-settings');
+
+    $settings = EmailSetting::current();
+    expect($settings->mailerName())->toBe('microsoft-smtp')
+        ->and($settings->providerLabel())->toBe('Microsoft 365 (SMTP with OAuth 2.0 token)')
+        ->and($settings->isConfigured())->toBeTrue();
+
+    AppServiceProvider::applyEmailSettings($settings);
+    $transport = Mail::mailer('microsoft-smtp')->getSymfonyTransport();
+
+    expect(config('mail.default'))->toBe('microsoft-smtp')
+        ->and($transport)->toBeInstanceOf(MicrosoftSmtpTransport::class)
+        ->and((string) $transport)->toBe('smtp://smtp.office365.com:587')
+        ->and($transport->getUsername())->toBe('selfservice@uhas.edu.gh')
+        ->and(config('mail.from.address'))->toBe('selfservice@uhas.edu.gh');
+});
+
+it('asks microsoft for an smtp token with the exchange online scope', function () {
+    Http::fake([GRAPH_TOKEN_URL => Http::response(['access_token' => 'smtp-token', 'expires_in' => 3599])]);
+
+    $token = (new MicrosoftOAuthToken('https://login.microsoftonline.com/1b051f28-5e5a-4586-aad2-b3fa77fda86d/oauth2/v2.0/token', 'edb16604-2f81-40f1-9483-067f3cb9fc24', 'smtp-secret', MicrosoftOAuthToken::SMTP_SCOPE))->get();
+
+    expect($token)->toBe('smtp-token');
+    Http::assertSent(fn (HttpRequest $request) => $request->url() === 'https://login.microsoftonline.com/1b051f28-5e5a-4586-aad2-b3fa77fda86d/oauth2/v2.0/token'
+        && $request['scope'] === 'https://outlook.office365.com/.default'
+        && $request['client_id'] === 'edb16604-2f81-40f1-9483-067f3cb9fc24'
+        && $request['grant_type'] === 'client_credentials');
+});
+
+it('explains a token the microsoft 365 mailbox refused', function () {
+    $this->actingAs(emailAdmin())->put('/quality/email-settings', microsoftSmtpPayload());
+    Mail::extend('microsoft-smtp', fn () => new class extends ArrayTransport
+    {
+        public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
+        {
+            throw new TransportException('Expected response code "235" but got code "535", with message "535 5.7.3 Authentication unsuccessful".');
+        }
+    });
+    Mail::forgetMailers();
+
+    $this->actingAs(emailAdmin())->post('/quality/email-settings/test', ['recipient' => 'ict@uhas.edu.gh']);
+
+    expect(EmailSetting::current())
+        ->last_test_succeeded->toBeFalse()
+        ->last_test_message->toContain('SMTP.SendAsApp')
+        ->last_test_message->toContain('535 5.7.3');
+});
+
+it('uses the uhas keycloak smtp settings: starttls required and 10 second timeouts', function () {
+    $transport = new MicrosoftSmtpTransport(
+        'smtp.office365.com',
+        587,
+        'starttls',
+        'selfservice@uhas.edu.gh',
+        token: new MicrosoftOAuthToken('https://login.example/token', 'client', 'secret', MicrosoftOAuthToken::SMTP_SCOPE),
+    );
+
+    expect($transport->isTlsRequired())->toBeTrue()
+        ->and($transport->getStream()->getTimeout())->toBe(10.0)
+        ->and($transport->getStream()->getHost())->toBe('smtp.office365.com')
+        ->and($transport->getStream()->getPort())->toBe(587)
+        ->and($transport->getStream()->isTLS())->toBeFalse()
+        ->and($transport->getUsername())->toBe('selfservice@uhas.edu.gh');
+
+    $ssl = new MicrosoftSmtpTransport('smtp.example.com', 465, 'ssl', 'user@example.com', 'secret');
+    expect($ssl->getStream()->isTLS())->toBeTrue()
+        ->and($ssl->getPassword())->toBe('secret');
+});
+
+it('saves password authentication or no authentication like keycloak', function () {
+    $admin = emailAdmin();
+
+    $this->actingAs($admin)
+        ->put('/quality/email-settings', microsoftSmtpPayload(['smtp_auth_type' => 'password', 'smtp_password' => '']))
+        ->assertInvalid(['smtp_password' => 'password']);
+
+    $this->actingAs($admin)
+        ->put('/quality/email-settings', microsoftSmtpPayload(['smtp_auth_type' => 'password', 'smtp_password' => 'mailbox-password', 'token_url' => '', 'client_id' => '', 'client_secret' => '']))
+        ->assertRedirect('/quality/email-settings');
+
+    $settings = EmailSetting::current();
+    expect($settings->smtp_auth_type)->toBe('password')
+        ->and($settings->smtp_password)->toBe('mailbox-password')
+        ->and(DB::table('email_settings')->value('smtp_password'))->not->toContain('mailbox-password')
+        ->and($settings->providerLabel())->toBe('Microsoft 365 (SMTP)')
+        ->and($settings->isConfigured())->toBeTrue();
+
+    AppServiceProvider::applyEmailSettings($settings);
+    $transport = Mail::mailer('microsoft-smtp')->getSymfonyTransport();
+    expect($transport->getUsername())->toBe('selfservice@uhas.edu.gh')
+        ->and($transport->getPassword())->toBe('mailbox-password');
+
+    $this->actingAs($admin)
+        ->put('/quality/email-settings', microsoftSmtpPayload(['smtp_auth' => false, 'smtp_host' => 'relay.uhas.edu.gh', 'smtp_port' => 25, 'sender_address' => 'qa@uhas.edu.gh']))
+        ->assertRedirect('/quality/email-settings');
+
+    $settings = EmailSetting::current();
+    AppServiceProvider::applyEmailSettings($settings);
+    Mail::forgetMailers();
+    $relay = Mail::mailer('microsoft-smtp')->getSymfonyTransport();
+    expect($settings->smtp_auth)->toBeFalse()
+        ->and($relay->getUsername())->toBe('')
+        ->and((string) $relay)->toBe('smtp://relay.uhas.edu.gh:25')
+        ->and(config('mail.from.address'))->toBe('qa@uhas.edu.gh');
+});
+
+it('shows the smtp conversation of a failed test with the sign-in hidden', function () {
+    $this->actingAs(emailAdmin())->put('/quality/email-settings', microsoftSmtpPayload());
+    Mail::extend('microsoft-smtp', fn () => new class extends ArrayTransport
+    {
+        public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
+        {
+            $exception = new TransportException('Expected response code "235" but got code "535", with message "535 5.7.3 Authentication unsuccessful".');
+            $exception->appendDebug("< 220 smtp.office365.com ready\n> EHLO qa.uhas.edu.gh\n< 250-STARTTLS\n> AUTH XOAUTH2 dXNlcj1zZWxmc2VydmljZUB1aGFzLmVkdS5naAFhdXRoPUJlYXJlciBzZWNyZXQtdG9rZW4BAQ==\n< 535 5.7.3 Authentication unsuccessful\n");
+
+            throw $exception;
+        }
+    });
+    Mail::forgetMailers();
+
+    $this->actingAs(emailAdmin())->post('/quality/email-settings/test', ['recipient' => 'ict@uhas.edu.gh']);
+
+    expect(EmailSetting::current()->last_test_message)
+        ->toContain('SMTP log:')
+        ->toContain('> EHLO qa.uhas.edu.gh')
+        ->toContain('> AUTH … (hidden)')
+        ->not->toContain('dXNlcj1zZWxmc2VydmljZUB1aGFz');
+});
+
+it('saves allow utf-8 like keycloak, switched on by default', function () {
+    $admin = emailAdmin();
+
+    expect(EmailSetting::current()->smtp_allow_utf8)->toBeTrue();
+
+    $this->actingAs($admin)
+        ->put('/quality/email-settings', microsoftSmtpPayload(['smtp_allow_utf8' => false]))
+        ->assertRedirect('/quality/email-settings');
+
+    $settings = EmailSetting::current();
+    expect($settings->smtp_allow_utf8)->toBeFalse();
+
+    AppServiceProvider::applyEmailSettings($settings);
+    expect(Mail::mailer('microsoft-smtp')->getSymfonyTransport()->allowsUtf8())->toBeFalse();
+
+    $this->actingAs($admin)
+        ->get('/quality/email-settings')
+        ->assertInertia(fn (Assert $page) => $page->where('settings.smtpAllowUtf8', false));
+});
+
+it('refuses non-ascii addresses before connecting when allow utf-8 is off', function () {
+    $transport = new MicrosoftSmtpTransport('smtp.office365.com', 587, 'starttls', allowUtf8: false);
+    $email = (new Email)->from('selfservice@uhas.edu.gh')->to('kwamé@uhas.edu.gh')->subject('Test')->text('Test');
+
+    expect(fn () => $transport->send($email))
+        ->toThrow(TransportException::class, 'Turn on "Allow UTF-8"');
 });

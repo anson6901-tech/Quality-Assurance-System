@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Mail\MicrosoftGraphTransport;
+use App\Mail\MicrosoftSmtpTransport;
 use App\Models\AuditLog;
 use App\Models\EmailSetting;
 use App\Support\MicrosoftGraphMailer;
+use App\Support\MicrosoftOAuthToken;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Support\Facades\Date;
@@ -60,7 +62,8 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * Mail goes through Microsoft 365 (Microsoft Graph) or Gmail (SMTP) when it is switched on
+     * Mail goes through Microsoft 365 (SMTP with OAuth 2.0, or Microsoft Graph) or Gmail (SMTP)
+     * when it is switched on
      * from the Email Settings page. Settings are re-read before each queued job so a long-running worker
      * picks up changes.
      */
@@ -72,6 +75,17 @@ class AppServiceProvider extends ServiceProvider
             $config['client_secret'],
             $config['sender_address'],
         )));
+        Mail::extend('microsoft-smtp', fn (array $config) => new MicrosoftSmtpTransport(
+            $config['host'],
+            (int) $config['port'],
+            $config['encryption'],
+            $config['auth'] ? $config['username'] : null,
+            $config['auth'] && $config['auth_type'] === EmailSetting::AUTH_PASSWORD ? $config['password'] : null,
+            $config['auth'] && $config['auth_type'] === EmailSetting::AUTH_TOKEN
+                ? new MicrosoftOAuthToken($config['token_url'], $config['client_id'], $config['client_secret'], $config['token_scope'])
+                : null,
+            (bool) ($config['allow_utf8'] ?? true),
+        ));
 
         self::applyEmailSettings();
         Queue::before(fn () => self::applyEmailSettings());
@@ -93,6 +107,22 @@ class AppServiceProvider extends ServiceProvider
                 'client_id' => $settings->client_id,
                 'client_secret' => $settings->client_secret,
                 'sender_address' => $settings->sender_address,
+            ],
+            // SMTP set up like the Keycloak mail settings.
+            'mail.mailers.microsoft-smtp' => [
+                'transport' => 'microsoft-smtp',
+                'host' => $settings->smtp_host,
+                'port' => $settings->smtp_port,
+                'encryption' => $settings->smtp_encryption,
+                'auth' => $settings->smtp_auth,
+                'username' => $settings->smtp_username,
+                'auth_type' => $settings->smtp_auth_type,
+                'password' => $settings->smtp_password,
+                'token_url' => $settings->token_url,
+                'token_scope' => $settings->token_scope,
+                'client_id' => $settings->client_id,
+                'client_secret' => $settings->client_secret,
+                'allow_utf8' => $settings->smtp_allow_utf8,
             ],
             // Gmail: SMTP with STARTTLS, signed in with a Google app password.
             'mail.mailers.gmail' => [

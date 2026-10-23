@@ -16,9 +16,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 type Provider = 'microsoft365' | 'gmail';
+type MicrosoftMethod = 'smtp' | 'graph';
 type Settings = {
     enabled: boolean;
     provider: Provider;
+    microsoftMethod: MicrosoftMethod;
+    smtpHost: string;
+    smtpPort: number;
+    smtpEncryption: 'ssl' | 'starttls';
+    smtpAuth: boolean;
+    smtpUsername: string | null;
+    smtpAuthType: 'password' | 'token';
+    hasSmtpPassword: boolean;
+    tokenUrl: string | null;
+    tokenScope: string;
+    smtpAllowUtf8: boolean;
+    providerLabel: string;
     fromAddress: string | null;
     gmailAddress: string | null;
     hasGmailAppPassword: boolean;
@@ -52,6 +65,17 @@ defineOptions({
 const form = useForm({
     enabled: props.settings.enabled,
     provider: props.settings.provider,
+    microsoft_method: props.settings.microsoftMethod,
+    smtp_host: props.settings.smtpHost,
+    smtp_port: props.settings.smtpPort,
+    smtp_encryption: props.settings.smtpEncryption,
+    smtp_auth: props.settings.smtpAuth,
+    smtp_username: props.settings.smtpUsername ?? '',
+    smtp_auth_type: props.settings.smtpAuthType,
+    smtp_password: '',
+    token_url: props.settings.tokenUrl ?? '',
+    token_scope: props.settings.tokenScope,
+    smtp_allow_utf8: props.settings.smtpAllowUtf8,
     tenant_id: props.settings.tenantId ?? '',
     client_id: props.settings.clientId ?? '',
     client_secret: '',
@@ -81,8 +105,46 @@ const providers: { value: Provider; label: string; description: string }[] = [
             'A Gmail account, signed in with a Google app password. About 500 recipients a day.',
     },
 ];
-const providerLabel = (provider: Provider) =>
-    provider === 'gmail' ? 'Gmail' : 'Microsoft 365';
+const microsoftMethods: {
+    value: MicrosoftMethod;
+    label: string;
+    description: string;
+}[] = [
+    {
+        value: 'smtp',
+        label: 'SMTP',
+        description:
+            'Host, port, SSL or StartTLS, and a password or OAuth 2.0 token, as in the UHAS Keycloak settings.',
+    },
+    {
+        value: 'graph',
+        label: 'Graph API',
+        description:
+            'Sends through Microsoft Graph over HTTPS. Needs the Mail.Send permission instead.',
+    },
+];
+const encryptionOptions = [
+    { value: 'ssl', label: 'Enable SSL' },
+    { value: 'starttls', label: 'Enable StartTLS' },
+] as const;
+const authTypeOptions = [
+    { value: 'password', label: 'Password' },
+    { value: 'token', label: 'Token' },
+] as const;
+const secretLabel = computed(() =>
+    form.microsoft_method === 'smtp'
+        ? 'Auth Token Client Secret'
+        : 'Client secret value',
+);
+const formProviderLabel = computed(() =>
+    form.provider === 'gmail'
+        ? 'Gmail'
+        : form.microsoft_method === 'graph'
+          ? 'Microsoft 365 (Graph API)'
+          : form.smtp_auth && form.smtp_auth_type === 'token'
+            ? 'Microsoft 365 (SMTP with OAuth 2.0 token)'
+            : 'Microsoft 365 (SMTP)',
+);
 
 const notificationOptions = [
     {
@@ -122,7 +184,8 @@ const providerChanged = computed(
 const save = () =>
     form.put('/quality/email-settings', {
         preserveScroll: true,
-        onSuccess: () => form.reset('client_secret', 'gmail_app_password'),
+        onSuccess: () =>
+            form.reset('client_secret', 'gmail_app_password', 'smtp_password'),
     });
 const sendTest = () =>
     testForm.post('/quality/email-settings/test', { preserveScroll: true });
@@ -152,7 +215,7 @@ const sendTest = () =>
             <CircleAlert v-else class="size-5 text-[#b7791f]" />
             <span v-if="settings.enabled">
                 Email is <strong>on</strong> through
-                <strong>{{ providerLabel(settings.provider) }}</strong
+                <strong>{{ settings.providerLabel }}</strong
                 >. Messages are sent from
                 <strong>{{ settings.fromAddress }}</strong
                 >.
@@ -217,59 +280,346 @@ const sendTest = () =>
                             Microsoft 365 connection
                         </h2>
                     </div>
-                    <div class="grid gap-4 sm:grid-cols-2">
-                        <div class="grid gap-2">
-                            <Label for="tenant-id">Directory (tenant) ID</Label>
-                            <Input
-                                id="tenant-id"
-                                v-model="form.tenant_id"
-                                placeholder="00000000-0000-0000-0000-000000000000"
-                                autocomplete="off"
+                    <div class="grid gap-3 sm:grid-cols-2" role="radiogroup">
+                        <label
+                            v-for="method in microsoftMethods"
+                            :key="method.value"
+                            class="flex cursor-pointer gap-3 rounded-lg border p-3"
+                            :class="
+                                form.microsoft_method === method.value
+                                    ? 'border-[#007a2f] bg-[#edf9f2] ring-1 ring-[#007a2f]/30'
+                                    : 'border-[#d5ece0] hover:bg-[#edf9f2] dark:border-white/10'
+                            "
+                        >
+                            <input
+                                v-model="form.microsoft_method"
+                                type="radio"
+                                name="microsoft-method"
+                                :value="method.value"
+                                class="mt-1 size-4 accent-[#007a2f]"
                             />
-                            <InputError :message="form.errors.tenant_id" />
+                            <span>
+                                <span
+                                    class="block text-sm font-semibold text-[#063f22]"
+                                >
+                                    {{ method.label }}
+                                </span>
+                                <span
+                                    class="block text-xs text-muted-foreground"
+                                >
+                                    {{ method.description }}
+                                </span>
+                            </span>
+                        </label>
+                    </div>
+                    <InputError :message="form.errors.microsoft_method" />
+                    <template v-if="form.microsoft_method === 'smtp'">
+                        <h3 class="text-sm font-semibold text-[#063f22]">
+                            Connection &amp; Authentication
+                        </h3>
+                        <div
+                            class="grid gap-4 sm:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]"
+                        >
+                            <div class="grid gap-2">
+                                <Label for="smtp-host">Host</Label>
+                                <Input
+                                    id="smtp-host"
+                                    v-model="form.smtp_host"
+                                    placeholder="smtp.office365.com"
+                                    required
+                                />
+                                <InputError :message="form.errors.smtp_host" />
+                            </div>
+                            <div class="grid gap-2">
+                                <Label for="smtp-port">Port</Label>
+                                <Input
+                                    id="smtp-port"
+                                    v-model.number="form.smtp_port"
+                                    type="number"
+                                    min="1"
+                                    max="65535"
+                                    required
+                                />
+                                <InputError :message="form.errors.smtp_port" />
+                            </div>
                         </div>
+                        <fieldset class="grid gap-2">
+                            <legend class="mb-1 text-sm font-medium">
+                                Encryption
+                            </legend>
+                            <div class="flex flex-wrap gap-4">
+                                <label
+                                    v-for="option in encryptionOptions"
+                                    :key="option.value"
+                                    class="flex cursor-pointer items-center gap-2 text-sm"
+                                >
+                                    <input
+                                        v-model="form.smtp_encryption"
+                                        type="radio"
+                                        name="smtp-encryption"
+                                        :value="option.value"
+                                        class="size-4 accent-[#007a2f]"
+                                    />
+                                    {{ option.label }}
+                                </label>
+                            </div>
+                            <InputError
+                                :message="form.errors.smtp_encryption"
+                            />
+                        </fieldset>
+                        <label
+                            class="flex cursor-pointer items-center gap-3 text-sm font-medium"
+                        >
+                            <input
+                                v-model="form.smtp_auth"
+                                type="checkbox"
+                                role="switch"
+                                class="size-4 accent-[#007a2f]"
+                            />
+                            Authentication
+                            <span
+                                class="text-xs font-normal text-muted-foreground"
+                                >{{
+                                    form.smtp_auth ? 'Enabled' : 'Disabled'
+                                }}</span
+                            >
+                        </label>
+                        <template v-if="form.smtp_auth">
+                            <div class="grid gap-2">
+                                <Label for="smtp-username">Username</Label>
+                                <Input
+                                    id="smtp-username"
+                                    v-model="form.smtp_username"
+                                    type="email"
+                                    placeholder="selfservice@uhas.edu.gh"
+                                    autocomplete="off"
+                                />
+                                <InputError
+                                    :message="form.errors.smtp_username"
+                                />
+                            </div>
+                            <fieldset class="grid gap-2">
+                                <legend class="mb-1 text-sm font-medium">
+                                    Authentication type
+                                </legend>
+                                <div class="flex flex-wrap gap-4">
+                                    <label
+                                        v-for="option in authTypeOptions"
+                                        :key="option.value"
+                                        class="flex cursor-pointer items-center gap-2 text-sm"
+                                    >
+                                        <input
+                                            v-model="form.smtp_auth_type"
+                                            type="radio"
+                                            name="smtp-auth-type"
+                                            :value="option.value"
+                                            class="size-4 accent-[#007a2f]"
+                                        />
+                                        {{ option.label }}
+                                    </label>
+                                </div>
+                                <InputError
+                                    :message="form.errors.smtp_auth_type"
+                                />
+                            </fieldset>
+                            <div
+                                v-if="form.smtp_auth_type === 'password'"
+                                class="grid gap-2"
+                            >
+                                <Label for="smtp-password">Password</Label>
+                                <Input
+                                    id="smtp-password"
+                                    v-model="form.smtp_password"
+                                    type="password"
+                                    autocomplete="new-password"
+                                    :placeholder="
+                                        settings.hasSmtpPassword
+                                            ? 'Saved. Leave blank to keep it.'
+                                            : ''
+                                    "
+                                />
+                                <InputError
+                                    :message="form.errors.smtp_password"
+                                />
+                            </div>
+                            <template v-else>
+                                <div class="grid gap-2">
+                                    <Label for="token-url"
+                                        >Auth Token URL</Label
+                                    >
+                                    <Input
+                                        id="token-url"
+                                        v-model="form.token_url"
+                                        type="url"
+                                        placeholder="https://login.microsoftonline.com/<tenant ID>/oauth2/v2.0/token"
+                                    />
+                                    <p class="text-xs text-muted-foreground">
+                                        Token endpoint for gathering tokens. For
+                                        Microsoft 365 it contains the tenant ID.
+                                    </p>
+                                    <InputError
+                                        :message="form.errors.token_url"
+                                    />
+                                </div>
+                                <div class="grid gap-2">
+                                    <Label for="token-scope"
+                                        >Auth Token Scope</Label
+                                    >
+                                    <Input
+                                        id="token-scope"
+                                        v-model="form.token_scope"
+                                        placeholder="https://outlook.office365.com/.default"
+                                    />
+                                    <InputError
+                                        :message="form.errors.token_scope"
+                                    />
+                                </div>
+                                <div class="grid gap-2">
+                                    <Label for="client-id"
+                                        >Auth Token Client ID</Label
+                                    >
+                                    <Input
+                                        id="client-id"
+                                        v-model="form.client_id"
+                                        placeholder="00000000-0000-0000-0000-000000000000"
+                                        autocomplete="off"
+                                    />
+                                    <InputError
+                                        :message="form.errors.client_id"
+                                    />
+                                </div>
+                                <div class="grid gap-2">
+                                    <Label for="client-secret">{{
+                                        secretLabel
+                                    }}</Label>
+                                    <Input
+                                        id="client-secret"
+                                        v-model="form.client_secret"
+                                        type="password"
+                                        autocomplete="new-password"
+                                        :placeholder="
+                                            settings.hasClientSecret
+                                                ? 'Saved. Leave blank to keep it.'
+                                                : 'Paste the client secret value'
+                                        "
+                                    />
+                                    <p class="text-xs text-muted-foreground">
+                                        Stored encrypted and never shown again.
+                                        When the secret expires, paste the new
+                                        one here.
+                                    </p>
+                                    <InputError
+                                        :message="form.errors.client_secret"
+                                    />
+                                </div>
+                            </template>
+                        </template>
+                        <label
+                            class="flex cursor-pointer items-start gap-3 text-sm font-medium"
+                        >
+                            <input
+                                v-model="form.smtp_allow_utf8"
+                                type="checkbox"
+                                role="switch"
+                                class="mt-0.5 size-4 accent-[#007a2f]"
+                            />
+                            <span>
+                                Allow UTF-8
+                                <span
+                                    class="text-xs font-normal text-muted-foreground"
+                                    >{{
+                                        form.smtp_allow_utf8
+                                            ? 'Enabled'
+                                            : 'Disabled'
+                                    }}</span
+                                >
+                                <span
+                                    class="block text-xs font-normal text-muted-foreground"
+                                >
+                                    Lets emails go to addresses written with
+                                    non-English characters (SMTPUTF8). Names and
+                                    subjects with accents work either way.
+                                </span>
+                            </span>
+                        </label>
                         <div class="grid gap-2">
-                            <Label for="client-id"
-                                >Application (client) ID</Label
+                            <Label for="sender-address"
+                                >From address (optional)</Label
                             >
                             <Input
-                                id="client-id"
-                                v-model="form.client_id"
-                                placeholder="00000000-0000-0000-0000-000000000000"
-                                autocomplete="off"
+                                id="sender-address"
+                                v-model="form.sender_address"
+                                type="email"
+                                :placeholder="
+                                    form.smtp_username ||
+                                    'selfservice@uhas.edu.gh'
+                                "
                             />
-                            <InputError :message="form.errors.client_id" />
+                            <p class="text-xs text-muted-foreground">
+                                Leave blank to send from the username.
+                            </p>
+                            <InputError :message="form.errors.sender_address" />
                         </div>
-                    </div>
-                    <div class="grid gap-2">
-                        <Label for="client-secret">Client secret value</Label>
-                        <Input
-                            id="client-secret"
-                            v-model="form.client_secret"
-                            type="password"
-                            autocomplete="new-password"
-                            :placeholder="
-                                settings.hasClientSecret
-                                    ? 'Saved. Leave blank to keep it.'
-                                    : 'Paste the secret value from Azure'
-                            "
-                        />
-                        <p class="text-xs text-muted-foreground">
-                            Stored encrypted and never shown again. When the
-                            secret expires in Azure, paste the new one here.
-                        </p>
-                        <InputError :message="form.errors.client_secret" />
-                    </div>
-                    <div class="grid gap-2">
-                        <Label for="sender-address">Send from mailbox</Label>
-                        <Input
-                            id="sender-address"
-                            v-model="form.sender_address"
-                            type="email"
-                            placeholder="qa-insight@uhas.edu.gh"
-                        />
-                        <InputError :message="form.errors.sender_address" />
-                    </div>
+                    </template>
+                    <template v-else>
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div class="grid gap-2">
+                                <Label for="tenant-id"
+                                    >Directory (tenant) ID</Label
+                                >
+                                <Input
+                                    id="tenant-id"
+                                    v-model="form.tenant_id"
+                                    placeholder="00000000-0000-0000-0000-000000000000"
+                                    autocomplete="off"
+                                />
+                                <InputError :message="form.errors.tenant_id" />
+                            </div>
+                            <div class="grid gap-2">
+                                <Label for="client-id"
+                                    >Application (client) ID</Label
+                                >
+                                <Input
+                                    id="client-id"
+                                    v-model="form.client_id"
+                                    placeholder="00000000-0000-0000-0000-000000000000"
+                                    autocomplete="off"
+                                />
+                                <InputError :message="form.errors.client_id" />
+                            </div>
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="client-secret">{{ secretLabel }}</Label>
+                            <Input
+                                id="client-secret"
+                                v-model="form.client_secret"
+                                type="password"
+                                autocomplete="new-password"
+                                :placeholder="
+                                    settings.hasClientSecret
+                                        ? 'Saved. Leave blank to keep it.'
+                                        : 'Paste the client secret value'
+                                "
+                            />
+                            <p class="text-xs text-muted-foreground">
+                                Stored encrypted and never shown again. When the
+                                secret expires, paste the new one here.
+                            </p>
+                            <InputError :message="form.errors.client_secret" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="sender-address"
+                                >Send from mailbox</Label
+                            >
+                            <Input
+                                id="sender-address"
+                                v-model="form.sender_address"
+                                type="email"
+                                placeholder="selfservice@uhas.edu.gh"
+                            />
+                            <InputError :message="form.errors.sender_address" />
+                        </div>
+                    </template>
                 </section>
 
                 <section
@@ -396,7 +746,7 @@ const sendTest = () =>
                         />
                         <span class="text-sm font-semibold text-[#063f22]">
                             Send emails through
-                            {{ providerLabel(form.provider) }}
+                            {{ formProviderLabel }}
                         </span>
                     </label>
                     <Button
@@ -422,8 +772,8 @@ const sendTest = () =>
                     </div>
                     <p class="text-sm text-muted-foreground">
                         Uses the saved
-                        {{ providerLabel(settings.provider) }} settings, even
-                        while email is switched off.
+                        {{ settings.providerLabel }} settings, even while email
+                        is switched off.
                         <strong v-if="providerChanged || form.isDirty"
                             >Save your changes first.</strong
                         >
@@ -467,7 +817,7 @@ const sendTest = () =>
                                 >· {{ lastTestedAt }}</span
                             >
                         </div>
-                        <p class="mt-1 break-words">
+                        <p class="mt-1 break-words whitespace-pre-line">
                             {{ settings.lastTest.message }}
                         </p>
                     </div>
@@ -480,7 +830,47 @@ const sendTest = () =>
                     <h2 class="text-lg font-semibold text-[#063f22]">
                         One-time setup in Microsoft 365
                     </h2>
-                    <ol class="list-decimal space-y-2 pl-5">
+                    <ol
+                        v-if="form.microsoft_method === 'smtp'"
+                        class="list-decimal space-y-2 pl-5"
+                    >
+                        <li>
+                            In
+                            <strong
+                                >Microsoft Entra ID → App registrations</strong
+                            >, use the app the email team set up (or create
+                            one). Copy its
+                            <strong>Directory (tenant) ID</strong> and
+                            <strong>Application (client) ID</strong>. The tenant
+                            ID is the part of the token URL after
+                            <code>login.microsoftonline.com/</code>.
+                        </li>
+                        <li>
+                            Under <strong>Certificates &amp; secrets</strong>,
+                            create a client secret for QA Insight and paste its
+                            <strong>Value</strong> here. Note when it expires.
+                        </li>
+                        <li>
+                            Under <strong>API permissions</strong>, add
+                            <strong
+                                >Office 365 Exchange Online → Application
+                                permissions → SMTP.SendAsApp</strong
+                            >, then <strong>Grant admin consent</strong>.
+                        </li>
+                        <li>
+                            In Exchange Online PowerShell, register the app's
+                            service principal and give it access to the mailbox
+                            (<code>New-ServicePrincipal</code>, then
+                            <code>Add-MailboxPermission</code>).
+                        </li>
+                        <li>
+                            Make sure <strong>SMTP AUTH</strong> is turned on
+                            for the mailbox, and that the server can reach
+                            smtp.office365.com on port 587.
+                        </li>
+                        <li>Save, send a test email, then switch email on.</li>
+                    </ol>
+                    <ol v-else class="list-decimal space-y-2 pl-5">
                         <li>
                             In the Azure portal, open
                             <strong
