@@ -138,7 +138,7 @@ class EmailSetting extends Model
                 && filled($this->sender_address);
         }
 
-        // SMTP, set up like the Keycloak mail settings.
+        
         $authenticated = ! $this->smtp_auth || (filled($this->smtp_username) && ($this->smtp_auth_type === self::AUTH_PASSWORD
             ? filled($this->smtp_password)
             : filled($this->token_url) && filled($this->token_scope) && filled($this->client_id) && filled($this->client_secret)));
