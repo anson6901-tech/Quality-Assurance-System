@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { Search, Users } from 'lucide-vue-next';
+import { Search, UserMinus, Users } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import InputError from '@/components/InputError.vue';
 import PageBanner from '@/components/PageBanner.vue';
@@ -261,6 +261,48 @@ const reloadPeriod = () =>
         preserveState: true,
         replace: true,
     });
+const unassigning = ref(false);
+const unassignPart = () => {
+    const course = selectedCourse.value;
+    const part = selectedPart.value;
+
+    if (!course || !part || part.lecturers.length === 0) {
+        return;
+    }
+
+    const names = part.lecturers.map((lecturer) => lecturer.name).join(', ');
+    const target = isSplit(course)
+        ? `${course.code} · ${part.label}`
+        : course.code;
+
+    if (
+        !window.confirm(
+            `Unassign ${names} from ${target}? Reports already uploaded for them are kept.`,
+        )
+    ) {
+        return;
+    }
+
+    router.delete(`/quality/course-assignments/${course.id}/lecturers`, {
+        data: {
+            semester_id: course.semesterId,
+            cells: part.cells.map((cell) => ({
+                program_id: cell.programId,
+                section_id: cell.sectionId,
+            })),
+        },
+        preserveScroll: true,
+        preserveState: true,
+        onStart: () => (unassigning.value = true),
+        onFinish: () => (unassigning.value = false),
+        onSuccess: () => {
+            assignmentOpen.value = false;
+            selectedCourse.value = null;
+            selectedPart.value = null;
+            window.setTimeout(reloadPeriod, 250);
+        },
+    });
+};
 const saveAssignments = () =>
     selectedCourse.value &&
     assignmentForm.put(
@@ -786,31 +828,48 @@ const saveAssignments = () =>
                                 </div>
                             </div>
                         </div></div></template
-                ><DialogFooter
+                ><DialogFooter class="gap-2 sm:justify-between"
                     ><Button
-                        type="button"
-                        variant="secondary"
-                        @click="
-                            assignmentStep === 'lecturers'
-                                ? (assignmentOpen = false)
-                                : (assignmentStep = 'lecturers')
+                        v-if="
+                            assignmentStep === 'lecturers' &&
+                            selectedPart &&
+                            selectedPart.lecturers.length
                         "
-                        >{{
-                            assignmentStep === 'lecturers' ? 'Cancel' : 'Back'
-                        }}</Button
-                    ><Button
-                        v-if="assignmentStep === 'lecturers'"
                         type="button"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        :disabled="assignmentForm.lecturer_ids.length === 0"
-                        @click="assignmentStep = 'workload'"
-                        >Next</Button
-                    ><Button
-                        v-else
-                        type="submit"
-                        class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
-                        :disabled="assignmentForm.processing"
-                        >Save assignments</Button
+                        variant="outline"
+                        class="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 sm:mr-auto dark:border-red-900 dark:text-red-300"
+                        :disabled="unassigning"
+                        @click="unassignPart"
+                        ><UserMinus class="h-4 w-4" /> Unassign</Button
+                    ><span v-else class="hidden sm:block" /><span
+                        class="flex flex-col-reverse gap-2 sm:flex-row"
+                        ><Button
+                            type="button"
+                            variant="secondary"
+                            @click="
+                                assignmentStep === 'lecturers'
+                                    ? (assignmentOpen = false)
+                                    : (assignmentStep = 'lecturers')
+                            "
+                            >{{
+                                assignmentStep === 'lecturers'
+                                    ? 'Cancel'
+                                    : 'Back'
+                            }}</Button
+                        ><Button
+                            v-if="assignmentStep === 'lecturers'"
+                            type="button"
+                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                            :disabled="assignmentForm.lecturer_ids.length === 0"
+                            @click="assignmentStep = 'workload'"
+                            >Next</Button
+                        ><Button
+                            v-else
+                            type="submit"
+                            class="bg-[#007a2f] text-white hover:bg-[#006d2b]"
+                            :disabled="assignmentForm.processing"
+                            >Save assignments</Button
+                        ></span
                     ></DialogFooter
                 >
             </form></DialogContent

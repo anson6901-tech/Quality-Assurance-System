@@ -94,34 +94,7 @@ class CourseAssignmentController extends Controller
         ]);
 
         $semesterId = (int) $validated['semester_id'];
-        $course->load(CourseBoard::relations([$semesterId]));
-        $courseCells = CoursePartitions::cells($course, $semesterId);
-
-        abort_if(
-            $courseCells->isEmpty(),
-            422,
-            __('This course must be mounted for the selected semester before a lecturer can be assigned.'),
-        );
-
-        $cells = isset($validated['cells'])
-            ? collect($validated['cells'])->map(fn (array $cell) => $courseCells->first(
-                fn (array $courseCell) => $courseCell['programId'] === (isset($cell['program_id']) ? (int) $cell['program_id'] : null)
-                    && $courseCell['sectionId'] === (isset($cell['section_id']) ? (int) $cell['section_id'] : null),
-            ))
-            : $courseCells->whereIn('programId', array_map('intval', $validated['program_ids']))->values();
-
-        if (isset($validated['program_ids'])) {
-            abort_unless(
-                collect($validated['program_ids'])->unique()->every(
-                    fn ($programId) => $courseCells->contains('programId', (int) $programId),
-                ),
-                422,
-                __('This course must be mounted for the selected semester before a lecturer can be assigned.'),
-            );
-        }
-
-        abort_if($cells->isEmpty() || $cells->contains(null), 422, __('Select parts of this course that are mounted for the semester.'));
-        $this->authorizeCells($request->user(), $cells);
+        $cells = $this->resolveCells($request, $course, $semesterId, $validated);
 
         $lecturerIds = collect($validated['lecturer_ids'])->unique()->values();
         $eligibleLecturers = User::query()
@@ -179,6 +152,87 @@ class CourseAssignmentController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Lecturer assignments saved.')]);
 
         return to_route('quality.course-assignments.index');
+    }
+
+    /**
+     * Unassigns every lecturer from the chosen part of a course for the semester. Reports
+     * already uploaded for them are kept.
+     */
+    public function unassign(Request $request, Course $course): RedirectResponse
+    {
+        abort_unless($this->canManageAssignments($request->user()), 403);
+        $validated = $request->validate([
+            'semester_id' => ['required', 'integer', Rule::exists('semesters', 'id')],
+            'cells' => ['required', 'array', 'min:1'],
+            'cells.*.program_id' => ['nullable', 'integer', Rule::exists('programs', 'id')],
+            'cells.*.section_id' => ['nullable', 'integer', Rule::exists('sections', 'id')],
+        ]);
+
+        $semesterId = (int) $validated['semester_id'];
+        $cells = $this->resolveCells($request, $course, $semesterId, $validated, allowUnmounted: true);
+
+        $query = DB::table('course_lecturer')
+            ->where('course_id', $course->id)
+            ->where('semester_id', $semesterId);
+        CourseBoard::whereCells($query, $cells);
+
+        $names = User::query()->whereIn('id', (clone $query)->pluck('lecturer_id')->unique())->orderBy('name')->pluck('name');
+        $query->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => $names->isEmpty()
+            ? __('No lecturers were assigned to that part of :code.', ['code' => $course->code])
+            : __(':names unassigned from :code.', ['names' => $names->implode(', '), 'code' => $course->code])]);
+
+        return to_route('quality.course-assignments.index');
+    }
+
+    /**
+     * The mounted cells of a course part named in the request, after checking the user may
+     * change them.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function resolveCells(Request $request, Course $course, int $semesterId, array $validated, bool $allowUnmounted = false)
+    {
+        $course->load(CourseBoard::relations([$semesterId]));
+        $courseCells = CoursePartitions::cells($course, $semesterId);
+
+        // Assignments can outlive a course being unmounted; they can still be removed.
+        if ($courseCells->isEmpty() && $allowUnmounted) {
+            $courseCells = collect($validated['cells'])->map(fn (array $cell) => [
+                'programId' => isset($cell['program_id']) ? (int) $cell['program_id'] : null,
+                'sectionId' => isset($cell['section_id']) ? (int) $cell['section_id'] : null,
+            ]);
+        }
+
+        abort_if(
+            $courseCells->isEmpty(),
+            422,
+            __('This course must be mounted for the selected semester before a lecturer can be assigned.'),
+        );
+
+        $cells = isset($validated['cells'])
+            ? collect($validated['cells'])->map(fn (array $cell) => $courseCells->first(
+                fn (array $courseCell) => $courseCell['programId'] === (isset($cell['program_id']) ? (int) $cell['program_id'] : null)
+                    && $courseCell['sectionId'] === (isset($cell['section_id']) ? (int) $cell['section_id'] : null),
+            ))
+            : $courseCells->whereIn('programId', array_map('intval', $validated['program_ids']))->values();
+
+        if (isset($validated['program_ids'])) {
+            abort_unless(
+                collect($validated['program_ids'])->unique()->every(
+                    fn ($programId) => $courseCells->contains('programId', (int) $programId),
+                ),
+                422,
+                __('This course must be mounted for the selected semester before a lecturer can be assigned.'),
+            );
+        }
+
+        abort_if($cells->isEmpty() || $cells->contains(null), 422, __('Select parts of this course that are mounted for the semester.'));
+        $this->authorizeCells($request->user(), $cells);
+
+        return $cells;
     }
 
     public function split(Request $request, Course $course): RedirectResponse

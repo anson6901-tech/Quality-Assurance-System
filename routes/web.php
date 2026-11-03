@@ -97,6 +97,7 @@ Route::middleware(['auth', 'verified'])
         Route::post('course-offerings/copy', [CourseOfferingController::class, 'copy'])->name('course-offerings.copy');
         Route::get('course-assignments', [CourseAssignmentController::class, 'index'])->name('course-assignments.index');
         Route::put('course-assignments/{course}/lecturers', [CourseAssignmentController::class, 'sync'])->name('course-assignments.sync');
+        Route::delete('course-assignments/{course}/lecturers', [CourseAssignmentController::class, 'unassign'])->name('course-assignments.unassign');
         Route::post('course-assignments/{course}/split', [CourseAssignmentController::class, 'split'])->name('course-assignments.split');
         Route::get('course-assignments/{course}/split-options', [CourseAssignmentController::class, 'splitOptions'])->name('course-assignments.split-options');
         Route::delete('course-assignments/{course}/split', [CourseAssignmentController::class, 'merge'])->name('course-assignments.merge');
