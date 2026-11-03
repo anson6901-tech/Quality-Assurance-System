@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import AuthLoginLayout from '@/layouts/auth/AuthLoginLayout.vue';
-import AuthLayout from '@/layouts/auth/AuthSimpleLayout.vue';
+import AuthUhasLayout from '@/layouts/auth/AuthUhasLayout.vue';
 
 const { title = '', description = '' } = defineProps<{
     title?: string;
@@ -9,15 +8,7 @@ const { title = '', description = '' } = defineProps<{
 </script>
 
 <template>
-    <AuthLoginLayout
-        v-if="title === 'Welcome back'"
-        :title="title"
-        :description="description"
-    >
+    <AuthUhasLayout :title="title" :description="description">
         <slot />
-    </AuthLoginLayout>
-
-    <AuthLayout v-else :title="title" :description="description">
-        <slot />
-    </AuthLayout>
+    </AuthUhasLayout>
 </template>

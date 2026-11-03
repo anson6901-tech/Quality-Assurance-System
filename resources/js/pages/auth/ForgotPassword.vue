@@ -6,13 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import { authButton, authInput, authLabel, authLink } from '@/lib/authStyles';
 import { login } from '@/routes';
 import { email } from '@/routes/password';
 
 defineOptions({
     layout: {
         title: 'Forgot password',
-        description: 'Enter your email to receive a password reset link',
+        description:
+            'Enter your email address and we will send you a link to reset your password.',
     },
 });
 
@@ -26,7 +28,7 @@ defineProps<{
 
     <div
         v-if="status"
-        class="mb-4 text-center text-sm font-medium text-green-600"
+        class="mb-4 text-center text-sm font-medium text-[#007a2f]"
     >
         {{ status }}
     </div>
@@ -34,21 +36,22 @@ defineProps<{
     <div class="space-y-6">
         <Form v-bind="email.form()" v-slot="{ errors, processing }">
             <div class="grid gap-2">
-                <Label for="email">Email address</Label>
+                <Label for="email" :class="authLabel">Email address</Label>
                 <Input
                     id="email"
                     type="email"
                     name="email"
-                    autocomplete="off"
+                    autocomplete="email"
                     autofocus
                     placeholder="email@example.com"
+                    :class="authInput"
                 />
                 <InputError :message="errors.email" />
             </div>
 
-            <div class="my-6 flex items-center justify-start">
+            <div class="mt-6">
                 <Button
-                    class="w-full"
+                    :class="authButton"
                     :disabled="processing"
                     data-test="email-password-reset-link-button"
                 >
@@ -58,9 +61,11 @@ defineProps<{
             </div>
         </Form>
 
-        <div class="space-x-1 text-center text-sm text-muted-foreground">
+        <div
+            class="space-x-1 text-center text-sm text-[#4b5563] dark:text-[#4b5563]"
+        >
             <span>Or, return to</span>
-            <TextLink :href="login()">log in</TextLink>
+            <TextLink :href="login()" :class="authLink">log in</TextLink>
         </div>
     </div>
 </template>
