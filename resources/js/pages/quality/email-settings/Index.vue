@@ -31,6 +31,7 @@ type Settings = {
     tokenUrl: string | null;
     tokenScope: string;
     smtpAllowUtf8: boolean;
+    smtpTimeout: number;
     providerLabel: string;
     fromAddress: string | null;
     gmailAddress: string | null;
@@ -76,6 +77,7 @@ const form = useForm({
     token_url: props.settings.tokenUrl ?? '',
     token_scope: props.settings.tokenScope,
     smtp_allow_utf8: props.settings.smtpAllowUtf8,
+    smtp_timeout: props.settings.smtpTimeout,
     tenant_id: props.settings.tenantId ?? '',
     client_id: props.settings.clientId ?? '',
     client_secret: '',
@@ -542,6 +544,21 @@ const sendTest = () =>
                                 </span>
                             </span>
                         </label>
+                        <div class="grid max-w-[12rem] gap-2">
+                            <Label for="smtp-timeout">Timeout (seconds)</Label>
+                            <Input
+                                id="smtp-timeout"
+                                v-model.number="form.smtp_timeout"
+                                type="number"
+                                min="5"
+                                max="120"
+                            />
+                            <p class="text-xs text-muted-foreground">
+                                How long to wait for the mail server at each
+                                step. Keycloak uses 10.
+                            </p>
+                            <InputError :message="form.errors.smtp_timeout" />
+                        </div>
                         <div class="grid gap-2">
                             <Label for="sender-address"
                                 >From address (optional)</Label

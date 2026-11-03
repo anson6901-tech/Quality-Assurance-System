@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Quality;
 
 use App\Http\Controllers\Controller;
+use App\Mail\MicrosoftSmtpTransport;
 use App\Models\EmailSetting;
 use App\Providers\AppServiceProvider;
 use Illuminate\Http\RedirectResponse;
@@ -42,6 +43,7 @@ class EmailSettingsController extends Controller
                 'tokenUrl' => $settings->token_url,
                 'tokenScope' => $settings->token_scope,
                 'smtpAllowUtf8' => $settings->smtp_allow_utf8,
+                'smtpTimeout' => $settings->smtp_timeout,
                 'providerLabel' => $settings->providerLabel(),
                 'fromAddress' => $settings->fromAddress(),
                 'gmailAddress' => $settings->gmail_address,
@@ -91,6 +93,7 @@ class EmailSettingsController extends Controller
             'smtp_encryption' => [$smtp ? 'required' : 'nullable', Rule::in([EmailSetting::ENCRYPTION_SSL, EmailSetting::ENCRYPTION_STARTTLS])],
             'smtp_auth' => ['boolean'],
             'smtp_allow_utf8' => ['boolean'],
+            'smtp_timeout' => ['nullable', 'integer', 'between:5,120'],
             'smtp_username' => [$required($smtpAuth), 'string', 'max:255'],
             'smtp_auth_type' => [$smtpAuth ? 'required' : 'nullable', Rule::in([EmailSetting::AUTH_PASSWORD, EmailSetting::AUTH_TOKEN])],
             'smtp_password' => ['nullable', 'string', 'max:500'],
@@ -191,7 +194,7 @@ class EmailSettingsController extends Controller
         } catch (Throwable $exception) {
             report($exception);
             $succeeded = false;
-            $message = self::explainFailure($settings, $exception->getMessage()).self::smtpLog($exception);
+            $message = self::redact(self::explainFailure($settings, $exception).self::smtpLog($exception));
         }
 
         $settings->refresh()->forceFill([
@@ -209,14 +212,32 @@ class EmailSettingsController extends Controller
     }
 
     /**
-     * Adds a plain-language hint to the most common sign-in failures.
+     * Adds a plain-language hint to the most common failures, using the SMTP conversation to
+     * tell "never reached the server" apart from "connected, then the server stopped answering".
      */
-    private static function explainFailure(EmailSetting $settings, string $message): string
+    private static function explainFailure(EmailSetting $settings, Throwable $exception): string
     {
+        $message = $exception->getMessage();
+        $debug = $exception instanceof TransportExceptionInterface ? $exception->getDebug() : '';
+        $timedOut = preg_match('/timed out/i', $message) === 1;
+        $connected = str_contains($debug, '< 220') || str_contains($debug, '< 250');
+        $lastCommand = collect(preg_split('/\R/', $debug))
+            ->map(fn (string $line) => preg_replace('/^\[[^\]]*\]\s*/', '', $line))
+            ->filter(fn (string $line) => str_starts_with($line, '>'))
+            ->last();
+        // AUTH LOGIN follows the AUTH command with base64 username and password lines.
+        $stoppedAtSignIn = $lastCommand !== null
+            && preg_match('/^>\s*(AUTH\b|[A-Za-z0-9+\/=]{8,}$)/i', trim($lastCommand)) === 1;
+        $smtp = $settings->usesGmail() || $settings->mailerName() === 'microsoft-smtp';
+        $host = $settings->usesGmail() ? 'smtp.gmail.com' : $settings->smtp_host;
+        $seconds = $settings->usesGmail() ? 30 : ($settings->smtp_timeout ?: MicrosoftSmtpTransport::TIMEOUT_SECONDS);
+
         $hint = match (true) {
             $settings->usesGmail() && str_contains($message, '535') => __('Gmail did not accept the address and app password. Use an app password (not the normal Gmail password) from an account with 2-Step Verification turned on.'),
             $settings->mailerName() === 'microsoft-smtp' && str_contains($message, '535') => __('Microsoft 365 accepted the app but the mailbox refused the token. Check that the app has the SMTP.SendAsApp permission with admin consent, that its service principal is registered in Exchange Online with access to the mailbox, and that SMTP AUTH is turned on for the mailbox.'),
-            $settings->mailerName() === 'microsoft-smtp' && preg_match('/connect|timed out|Connection refused/i', $message) === 1 => __('Could not reach smtp.office365.com on port 587. Check that the server can make outgoing connections on that port.'),
+            $smtp && $timedOut && $stoppedAtSignIn => __('The server reached :host and started an encrypted connection, but got no answer within :seconds seconds after sending the sign-in. The sign-in line is large (about 2–3 KB), so this usually means the network between the server and Microsoft drops large packets (an MTU problem with Docker, a VPN or a firewall), or a firewall is inspecting SMTP traffic. Try a longer timeout, and ask the network team to check the MTU on the server and its Docker network.', ['host' => $host, 'seconds' => $seconds]),
+            $smtp && $timedOut && $connected => __('The server reached :host but it stopped answering partway through. Try a longer timeout, and check any firewall between the server and :host.', ['host' => $host]),
+            $smtp && preg_match('/connect|timed out|Connection refused/i', $message) === 1 => __('Could not reach :host. Check that the server can make outgoing connections on that port.', ['host' => $host]),
             default => null,
         };
 
@@ -224,8 +245,8 @@ class EmailSettingsController extends Controller
     }
 
     /**
-     * The SMTP conversation of a failed test send, like Keycloak's "Debug SMTP", with the
-     * sign-in line hidden because it carries the access token or password.
+     * The SMTP conversation of a failed test send, like Keycloak's "Debug SMTP". Sign-in lines
+     * are removed by {@see self::redact()} before anything is stored or shown.
      */
     private static function smtpLog(Throwable $exception): string
     {
@@ -235,13 +256,36 @@ class EmailSettingsController extends Controller
             return '';
         }
 
-        $lines = collect(preg_split('/\R/', $debug))
-            ->map(fn (string $line) => preg_match('/^>\s*AUTH\b/i', $line) === 1 || preg_match('/^>\s*[A-Za-z0-9+\/=]{20,}$/', $line) === 1
-                ? '> AUTH … (hidden)'
-                : $line)
-            ->take(-20)
+        return "\n\nSMTP log:\n".collect(preg_split('/\R/', $debug))->take(-20)->implode("\n");
+    }
+
+    /**
+     * Removes anything that could sign in: AUTH commands and their answers (passwords and
+     * OAuth tokens, base64 or not), and bare access tokens.
+     */
+    private static function redact(string $text): string
+    {
+        $text = collect(preg_split('/\R/', $text))
+            ->map(function (string $line): string {
+                preg_match('/^(\[[^\]]*\]\s*)?(>\s*)(.*)$/s', $line, $parts);
+
+                if ($parts === []) {
+                    return $line;
+                }
+
+                [, $time, $arrow, $command] = $parts;
+
+                if (preg_match('/^AUTH\s+(\S+)/i', $command, $auth) === 1) {
+                    return $time.$arrow.'AUTH '.strtoupper($auth[1]).' … (hidden)';
+                }
+
+                // AUTH LOGIN sends the username and password on their own base64 lines.
+                return preg_match('/^[A-Za-z0-9+\/=]{8,}$/', trim($command)) === 1
+                    ? $time.$arrow.'… (hidden)'
+                    : $line;
+            })
             ->implode("\n");
 
-        return "\n\nSMTP log:\n".$lines;
+        return (string) preg_replace(['/\beyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}/', '/Bearer\s+\S+/i'], ['… (hidden token)', 'Bearer … (hidden)'], $text);
     }
 }

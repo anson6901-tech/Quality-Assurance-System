@@ -645,7 +645,7 @@ it('shows the smtp conversation of a failed test with the sign-in hidden', funct
     expect(EmailSetting::current()->last_test_message)
         ->toContain('SMTP log:')
         ->toContain('> EHLO qa.uhas.edu.gh')
-        ->toContain('> AUTH … (hidden)')
+        ->toContain('> AUTH XOAUTH2 … (hidden)')
         ->not->toContain('dXNlcj1zZWxmc2VydmljZUB1aGFz');
 });
 
@@ -675,4 +675,64 @@ it('refuses non-ascii addresses before connecting when allow utf-8 is off', func
 
     expect(fn () => $transport->send($email))
         ->toThrow(TransportException::class, 'Turn on "Allow UTF-8"');
+});
+
+it('hides timestamped sign-in lines and explains a timeout after sign-in', function () {
+    $this->actingAs(emailAdmin())->put('/quality/email-settings', microsoftSmtpPayload());
+    // A JWT-shaped fake token, as Microsoft would issue (header.payload.signature).
+    $fakeToken = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJodHRwczovL291dGxvb2sub2ZmaWNlMzY1LmNvbSJ9.c2lnbmF0dXJlLXNpZ25hdHVyZS1zaWduYXR1cmU';
+    $authLine = base64_encode("user=selfservice@uhas.edu.gh\1auth=Bearer {$fakeToken}\1\1");
+
+    Mail::extend('microsoft-smtp', fn () => new class($authLine) extends ArrayTransport
+    {
+        public function __construct(private string $authLine)
+        {
+            parent::__construct();
+        }
+
+        public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
+        {
+            $exception = new TransportException('Connection to "smtp.office365.com:587" timed out.');
+            $exception->appendDebug(implode("\n", [
+                '[2026-11-03T20:45:13.770235Z] > STARTTLS',
+                '[2026-11-03T20:45:13.869634Z] < 220 2.0.0 SMTP server ready',
+                '[2026-11-03T20:45:14.114116Z] > EHLO [127.0.0.1]',
+                '[2026-11-03T20:45:14.312665Z] < 250-AUTH LOGIN XOAUTH2',
+                "[2026-11-03T20:45:14.312797Z] > AUTH XOAUTH2 {$this->authLine}",
+                '[2026-11-03T20:45:20.000000Z] > dXNlcm5hbWVAdWhhcy5lZHUuZ2g=',
+            ])."\n");
+
+            throw $exception;
+        }
+    });
+    Mail::forgetMailers();
+
+    $this->actingAs(emailAdmin())->post('/quality/email-settings/test', ['recipient' => 'ict@uhas.edu.gh']);
+
+    $message = EmailSetting::current()->last_test_message;
+    expect($message)
+        ->toContain('[2026-11-03T20:45:14.312797Z] > AUTH XOAUTH2 … (hidden)')
+        ->toContain('[2026-11-03T20:45:20.000000Z] > … (hidden)')
+        ->toContain('got no answer within 10 seconds after sending the sign-in')
+        ->toContain('MTU')
+        ->not->toContain($authLine)
+        ->not->toContain('dXNlcj1')
+        ->not->toContain('eyJ')
+        ->not->toContain('Could not reach');
+});
+
+it('uses the timeout set on the email settings page', function () {
+    $this->actingAs(emailAdmin())
+        ->put('/quality/email-settings', microsoftSmtpPayload(['smtp_timeout' => 30]))
+        ->assertRedirect('/quality/email-settings');
+
+    $settings = EmailSetting::current();
+    AppServiceProvider::applyEmailSettings($settings);
+
+    expect($settings->smtp_timeout)->toBe(30)
+        ->and(Mail::mailer('microsoft-smtp')->getSymfonyTransport()->getStream()->getTimeout())->toBe(30.0);
+
+    $this->actingAs(emailAdmin())
+        ->put('/quality/email-settings', microsoftSmtpPayload(['smtp_timeout' => 500]))
+        ->assertInvalid('smtp_timeout');
 });

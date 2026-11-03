@@ -31,6 +31,7 @@ class MicrosoftSmtpTransport extends EsmtpTransport
         #[\SensitiveParameter] ?string $password = null,
         private readonly ?MicrosoftOAuthToken $token = null,
         private readonly bool $allowUtf8 = true,
+        int $timeoutSeconds = self::TIMEOUT_SECONDS,
     ) {
         // SSL connects encrypted from the start; StartTLS connects, then must upgrade.
         parent::__construct($host, $port, $encryption === 'ssl', authenticators: $token ? [new XOAuth2Authenticator] : null);
@@ -47,7 +48,7 @@ class MicrosoftSmtpTransport extends EsmtpTransport
             $this->setPassword($password);
         }
 
-        $this->getStream()->setTimeout(self::TIMEOUT_SECONDS);
+        $this->getStream()->setTimeout($timeoutSeconds);
     }
 
     protected function doSend(SentMessage $message): void

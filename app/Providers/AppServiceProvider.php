@@ -85,6 +85,7 @@ class AppServiceProvider extends ServiceProvider
                 ? new MicrosoftOAuthToken($config['token_url'], $config['client_id'], $config['client_secret'], $config['token_scope'])
                 : null,
             (bool) ($config['allow_utf8'] ?? true),
+            (int) ($config['timeout'] ?? MicrosoftSmtpTransport::TIMEOUT_SECONDS),
         ));
 
         self::applyEmailSettings();
@@ -123,6 +124,7 @@ class AppServiceProvider extends ServiceProvider
                 'client_id' => $settings->client_id,
                 'client_secret' => $settings->client_secret,
                 'allow_utf8' => $settings->smtp_allow_utf8,
+                'timeout' => $settings->smtp_timeout,
             ],
             // Gmail: SMTP with STARTTLS, signed in with a Google app password.
             'mail.mailers.gmail' => [

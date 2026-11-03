@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Cache;
     'token_url',
     'token_scope',
     'smtp_allow_utf8',
+    'smtp_timeout',
     'tenant_id',
     'client_id',
     'client_secret',
@@ -77,6 +78,7 @@ class EmailSetting extends Model
             'smtp_password' => 'encrypted',
             'smtp_auth' => 'boolean',
             'smtp_allow_utf8' => 'boolean',
+            'smtp_timeout' => 'integer',
             'smtp_port' => 'integer',
             'send_welcome' => 'boolean',
             'send_review_requests' => 'boolean',
@@ -138,7 +140,6 @@ class EmailSetting extends Model
                 && filled($this->sender_address);
         }
 
-        
         $authenticated = ! $this->smtp_auth || (filled($this->smtp_username) && ($this->smtp_auth_type === self::AUTH_PASSWORD
             ? filled($this->smtp_password)
             : filled($this->token_url) && filled($this->token_scope) && filled($this->client_id) && filled($this->client_secret)));
