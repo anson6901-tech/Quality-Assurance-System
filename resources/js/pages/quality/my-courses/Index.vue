@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
-import { Download, Eye, Printer } from 'lucide-vue-next';
+import { Download, Eye, FileCheck2, Printer } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import PageBanner from '@/components/PageBanner.vue';
 import CourseList from '@/components/quality/CourseList.vue';
@@ -32,7 +32,21 @@ type MyCourse = CourseEntry<MyPart> & {
     semester: string | null;
 };
 
-const props = defineProps<{ courses: MyCourse[] }>();
+type PublishedReport = {
+    id: number;
+    title: string;
+    category: string | null;
+    courses: string;
+    period: string;
+    publishedAt: string | null;
+    fileUrl: string;
+    downloadUrl: string;
+};
+
+const props = defineProps<{
+    courses: MyCourse[];
+    publishedReports: PublishedReport[];
+}>();
 const courseSearch = ref(useSearchParam('search'));
 const yearFilter = ref('');
 const semesterFilter = ref('');
@@ -117,6 +131,76 @@ const printPage = () => window.print();
                 </Button>
             </template>
         </PageBanner>
+
+        <!-- Every published report about the lecturer -->
+        <section
+            class="rounded-xl border border-[#9fd8b8] bg-white shadow-sm print:hidden"
+            aria-labelledby="published-reports-heading"
+        >
+            <h2
+                id="published-reports-heading"
+                class="flex items-center gap-2 border-b border-[#d6e9de] px-4 py-3 text-base font-semibold text-[#063f22]"
+            >
+                <FileCheck2 class="size-5 text-[#007a2f]" />
+                My published reports
+                <span class="text-sm font-normal text-[#4b6b58]"
+                    >({{ publishedReports.length }})</span
+                >
+            </h2>
+            <ul
+                v-if="publishedReports.length"
+                class="divide-y divide-[#e4efe8]"
+            >
+                <li
+                    v-for="report in publishedReports"
+                    :key="report.id"
+                    class="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                >
+                    <div class="min-w-0">
+                        <p class="font-medium text-[#1d2f37]">
+                            {{ report.title }}
+                        </p>
+                        <p class="text-xs text-[#66808a]">
+                            {{
+                                [
+                                    report.category,
+                                    report.courses,
+                                    report.period,
+                                    report.publishedAt
+                                        ? `Published ${new Date(report.publishedAt).toLocaleDateString()}`
+                                        : null,
+                                ]
+                                    .filter(Boolean)
+                                    .join(' · ')
+                            }}
+                        </p>
+                    </div>
+                    <div class="flex gap-2">
+                        <Button as-child size="sm" variant="outline">
+                            <a
+                                :href="report.fileUrl"
+                                target="_blank"
+                                rel="noopener"
+                            >
+                                <Eye class="h-4 w-4" /> View
+                            </a>
+                        </Button>
+                        <Button
+                            as-child
+                            size="sm"
+                            class="bg-[#007a2f] text-white hover:bg-[#006428]"
+                        >
+                            <a :href="report.downloadUrl">
+                                <Download class="h-4 w-4" /> Download PDF
+                            </a>
+                        </Button>
+                    </div>
+                </li>
+            </ul>
+            <p v-else class="px-4 py-6 text-center text-sm text-[#4b6b58]">
+                No reports about you have been published yet.
+            </p>
+        </section>
 
         <section
             class="grid gap-3 border-y border-[#9fd8b8] bg-[#eefaf3] px-4 py-4 shadow-sm md:grid-cols-4 lg:sticky lg:top-20 lg:z-20 print:hidden"

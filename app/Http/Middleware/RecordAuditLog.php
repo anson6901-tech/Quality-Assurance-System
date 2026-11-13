@@ -51,6 +51,8 @@ class RecordAuditLog
             str_starts_with($path, 'quality/departments') => 'Departments',
             str_starts_with($path, 'quality/courses') => 'Courses',
             str_starts_with($path, 'quality/academic-years') => 'Academic Years',
+            str_starts_with($path, 'quality/teaching-evaluation') => 'Teaching Evaluation',
+            str_starts_with($path, 'quality/documents') => 'Document Storage',
             default => null,
         };
     }

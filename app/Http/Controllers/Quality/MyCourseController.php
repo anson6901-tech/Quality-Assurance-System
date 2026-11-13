@@ -87,6 +87,24 @@ class MyCourseController extends Controller
             ->sortBy([['academicYear', 'desc'], ['code', 'asc']])
             ->values();
 
-        return Inertia::render('quality/my-courses/Index', ['courses' => $entries]);
+        // Every published report about this lecturer, whatever course or semester it is for.
+        $published = QualityReport::query()
+            ->where('lecturer_id', $userId)
+            ->where('status', 'approved')
+            ->with(['courses:id,code,title', 'academicYear:id,name', 'semester:id,name', 'reviews' => fn ($query) => $query->where('action', 'published')])
+            ->latest('updated_at')
+            ->get()
+            ->map(fn (QualityReport $report) => [
+                'id' => $report->id,
+                'title' => $report->title,
+                'category' => $report->category,
+                'courses' => $report->courses->map(fn (Course $course) => "{$course->code} {$course->title}")->implode(', '),
+                'period' => trim(($report->academicYear?->name ?? '').' · '.($report->semester?->name ?? ''), ' ·'),
+                'publishedAt' => ($report->reviews->first()?->created_at ?? $report->updated_at)?->toIso8601String(),
+                'fileUrl' => route('quality.reports.file', $report, absolute: false),
+                'downloadUrl' => route('quality.reports.download', $report, absolute: false),
+            ]);
+
+        return Inertia::render('quality/my-courses/Index', ['courses' => $entries, 'publishedReports' => $published]);
     }
 }

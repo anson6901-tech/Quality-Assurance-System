@@ -18,6 +18,7 @@ export type QualityProfile = {
     canViewPrintQueue: boolean;
     canViewAuditLogs: boolean;
     canManageEmailSettings: boolean;
+    canManageDocuments: boolean;
 };
 
 export type QualityReport = {

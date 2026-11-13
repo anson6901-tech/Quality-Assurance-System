@@ -244,12 +244,19 @@ class User extends Authenticatable
             'canViewPrintQueue' => $this->canViewPrintQueue(),
             'canViewAuditLogs' => $this->canViewAuditLogs(),
             'canManageEmailSettings' => $this->canManageEmailSettings(),
+            'canManageDocuments' => $this->canManageDocuments(),
         ];
     }
 
     /**
      * Email is configured for the whole university, so only university-placed users may change it.
      */
+    public function canManageDocuments(): bool
+    {
+        return $this->isPlaced()
+            && QualityRolePermission::roleHas($this->university_role, 'manage_documents');
+    }
+
     public function canManageEmailSettings(): bool
     {
         return $this->isPlacedAtUniversity()

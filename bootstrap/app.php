@@ -1,8 +1,8 @@
 <?php
 
 use App\Actions\Teams\CreateTeam;
-use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsurePasswordIsChanged;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RecordAuditLog;

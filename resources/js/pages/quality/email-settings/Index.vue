@@ -11,6 +11,8 @@ import {
 import { computed } from 'vue';
 import InputError from '@/components/InputError.vue';
 import PageBanner from '@/components/PageBanner.vue';
+import PublishedEmailEditor from '@/components/quality/PublishedEmailEditor.vue';
+import type { PublishedTemplate } from '@/components/quality/PublishedEmailEditor.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -53,6 +55,7 @@ type Settings = {
 const props = defineProps<{
     settings: Settings;
     defaultTestRecipient: string;
+    publishedTemplate: PublishedTemplate;
 }>();
 
 defineOptions({
@@ -962,5 +965,10 @@ const sendTest = () =>
                 </section>
             </div>
         </div>
+
+        <PublishedEmailEditor
+            :template="publishedTemplate"
+            :sender-name="settings.senderName"
+        />
     </div>
 </template>

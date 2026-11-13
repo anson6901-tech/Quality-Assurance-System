@@ -9,6 +9,7 @@ use App\Models\Course;
 use App\Models\CourseOffering;
 use App\Models\CourseSplit;
 use App\Models\Department;
+use App\Models\EmailSetting;
 use App\Models\Program;
 use App\Models\QualityReport;
 use App\Models\QualityRolePermission;
@@ -16,20 +17,24 @@ use App\Models\School;
 use App\Models\Section;
 use App\Models\Semester;
 use App\Models\User;
+use App\Notifications\ReportWorkflowNotification;
 use App\Support\Area;
 use App\Support\CourseBoard;
 use App\Support\CoursePartitions;
 use App\Support\ReportNotifications;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Throwable;
 
 class QualityReportController extends Controller
 {
@@ -158,11 +163,11 @@ class QualityReportController extends Controller
     {
         abort_unless($request->user()->canUploadQualityReports(), 403);
 
+        // Archived years can be uploaded to as well; active ones come first.
         $academicYears = AcademicYear::query()
-            ->active()
-            ->orderByDesc('starts_on')
-            ->orderByDesc('id')
-            ->get(['id', 'name', 'status']);
+            ->forUploads()
+            ->get(['id', 'name', 'status'])
+            ->map(fn (AcademicYear $year) => $year->setAttribute('name', $year->uploadLabel()));
 
         $defaultAcademicYearId = $academicYears->first()?->id;
 
@@ -257,7 +262,7 @@ class QualityReportController extends Controller
             'academic_year_id' => [
                 'required',
                 'integer',
-                Rule::exists('academic_years', 'id')->where('status', 'active'),
+                Rule::exists('academic_years', 'id'),
             ],
             'semester_id' => ['nullable', 'integer', Rule::exists('semesters', 'id')],
             'program_id' => [
@@ -443,7 +448,7 @@ class QualityReportController extends Controller
             ]);
 
             return to_route('quality.reports.create');
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             foreach ($filePaths as $filePath) {
                 Storage::disk('public')->delete($filePath);
             }
@@ -693,6 +698,122 @@ class QualityReportController extends Controller
         return $this->approvalRedirect($request, 'quality.reports.approvals');
     }
 
+    /**
+     * Publishes the chosen reports at once (QA Director). Each lecturer is emailed with the
+     * report attached, as with a single publish.
+     */
+    public function publishSelected(Request $request): RedirectResponse
+    {
+        abort_unless($this->canApproveReports($request), 403);
+        $reports = $this->selectedReports($request, 'under_review');
+        $note = $request->string('note')->toString() ?: null;
+
+        DB::transaction(function () use ($request, $reports, $note): void {
+            foreach ($reports as $report) {
+                $report->update(['status' => 'approved']);
+                $this->recordReview($report, $request->user(), 'published', $note);
+            }
+        });
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => trans_choice(
+            '{1} One report published to its lecturer.|[2,*] :count reports published to their lecturers.',
+            $reports->count(),
+            ['count' => $reports->count()],
+        )]);
+
+        return to_route('quality.reports.approvals', $request->only(['academic_year_id', 'semester_id', 'school_id', 'department_id', 'program_id', 'level', 'lecturer_id']));
+    }
+
+    /**
+     * Unpublishes the chosen reports at once (QA Director): they go back to Director Review.
+     */
+    public function unpublishSelected(Request $request): RedirectResponse
+    {
+        abort_unless($this->canApproveReports($request), 403);
+        $reports = $this->selectedReports($request, 'approved');
+        $note = $request->string('note')->toString() ?: null;
+
+        DB::transaction(function () use ($request, $reports, $note): void {
+            foreach ($reports as $report) {
+                $report->update(['status' => 'under_review']);
+                $this->recordReview($report, $request->user(), 'unapproved', $note);
+            }
+        });
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => trans_choice(
+            '{1} One report unpublished.|[2,*] :count reports unpublished.',
+            $reports->count(),
+            ['count' => $reports->count()],
+        )]);
+
+        return to_route('quality.reports.approvals', $request->only(['academic_year_id', 'semester_id', 'school_id', 'department_id', 'program_id', 'level', 'lecturer_id']));
+    }
+
+    /**
+     * Sends the "report published" email to the lecturer again, with the PDF attached, for
+     * when it did not arrive. Sent straight away rather than queued, so the result shows here.
+     */
+    public function resendPublishedEmail(Request $request, QualityReport $report): RedirectResponse
+    {
+        abort_unless(
+            $this->canManageApprovalReport($request, $report)
+                || ($this->canReviewAssignedReport($request, $report) && $this->approvalScopedReportExists($request, $report)),
+            403,
+        );
+        abort_unless($report->status === 'approved', 409);
+
+        $lecturer = $report->lecturer;
+        $settings = EmailSetting::cached();
+
+        $problem = match (true) {
+            ! $lecturer || blank($lecturer->email) => __('This report has no lecturer with an email address.'),
+            ! $lecturer->is_active => __(':name\'s account is inactive, so no email was sent.', ['name' => $lecturer->name]),
+            ! $settings?->enabled || ! $settings->isConfigured() => __('Email sending is off. Turn it on in Email Settings first.'),
+            default => null,
+        };
+
+        if ($problem === null) {
+            try {
+                Notification::sendNow($lecturer, new ReportWorkflowNotification($report, 'published', $request->user()->name));
+                $report->reviews()->create(['actor_id' => $request->user()->id, 'action' => 'email_resent', 'note' => __('Published email sent again to :email.', ['email' => $lecturer->email])]);
+            } catch (Throwable $exception) {
+                report($exception);
+                $problem = __('The email could not be sent: :reason', ['reason' => str($exception->getMessage())->limit(200)]);
+            }
+        }
+
+        Inertia::flash('toast', $problem
+            ? ['type' => 'error', 'message' => $problem]
+            : ['type' => 'success', 'message' => __('Email sent again to :name (:email), with the report attached.', ['name' => $lecturer->name, 'email' => $lecturer->email])]);
+
+        return back();
+    }
+
+    /**
+     * The reports chosen for a bulk action, all in the given status and in the user's area.
+     *
+     * @return Collection<int, QualityReport>
+     */
+    private function selectedReports(Request $request, string $status): Collection
+    {
+        $validated = $request->validate([
+            'report_ids' => ['required', 'array', 'min:1'],
+            'report_ids.*' => ['integer', 'distinct', Rule::exists('quality_reports', 'id')],
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $reports = QualityReport::query()->whereIn('id', $validated['report_ids'])->get();
+
+        abort_unless(
+            $reports->count() === count($validated['report_ids'])
+                && $reports->every(fn (QualityReport $report) => $report->status === $status
+                    && $this->approvalScopedReportExists($request, $report)),
+            422,
+        );
+
+        return $reports;
+    }
+
     public function destroy(Request $request, QualityReport $report): RedirectResponse
     {
         if ($report->status === 'draft') {
@@ -744,6 +865,10 @@ class QualityReportController extends Controller
         return Inertia::render('quality/reports/Show', [
             'report' => $this->serializeReport($report, includeDetails: true),
             'canPushReport' => $this->canPushReport($request, $report),
+            'canResendEmail' => $report->status === 'approved' && (
+                $this->canManageApprovalReport($request, $report)
+                || ($this->canReviewAssignedReport($request, $report) && $this->approvalScopedReportExists($request, $report))
+            ),
         ]);
     }
 

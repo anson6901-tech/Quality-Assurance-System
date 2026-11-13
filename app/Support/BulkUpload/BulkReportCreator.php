@@ -27,12 +27,42 @@ class BulkReportCreator
      */
     public static function create(ReportImportBatch $batch, ReportImportItem $item, User $actor): array
     {
-        $course = Course::query()->findOrFail($item->course_id);
-        $lecturer = User::query()->findOrFail($item->lecturer_id);
+        return self::createDrafts(
+            academicYearId: $batch->academic_year_id,
+            semesterId: $batch->semester_id,
+            category: $batch->category,
+            courseId: $item->course_id,
+            lecturerId: $item->lecturer_id,
+            cells: $item->cells ?? [],
+            pdf: Storage::disk('local')->get($item->file_path),
+            actor: $actor,
+            note: __('Bulk upload'),
+        );
+    }
+
+    /**
+     * Creates (or refreshes the PDF of) the actor's draft reports for one lecturer's course part.
+     *
+     * @param  array<int, array{program_id: int|null, section_id: int|null}>  $cells
+     * @return array<int, int> IDs of the reports created or updated.
+     */
+    public static function createDrafts(
+        int $academicYearId,
+        int $semesterId,
+        string $category,
+        int $courseId,
+        int $lecturerId,
+        array $cells,
+        string $pdf,
+        User $actor,
+        string $note,
+    ): array {
+        $course = Course::query()->findOrFail($courseId);
+        $lecturer = User::query()->findOrFail($lecturerId);
         $created = [];
 
-        DB::transaction(function () use ($batch, $item, $actor, $course, $lecturer, &$created): void {
-            foreach ($item->cells ?? [] as $cell) {
+        DB::transaction(function () use ($academicYearId, $semesterId, $category, $cells, $pdf, $note, $actor, $course, $lecturer, &$created): void {
+            foreach ($cells as $cell) {
                 $program = $cell['program_id'] ? Program::query()->with('department')->find($cell['program_id']) : null;
                 $department = $program?->department
                     ?? ($course->department_id ? Department::query()->find($course->department_id) : null)
@@ -43,10 +73,10 @@ class BulkReportCreator
                 }
 
                 $path = 'quality-reports/'.Str::uuid().'.pdf';
-                Storage::disk('public')->put($path, Storage::disk('local')->get($item->file_path));
+                Storage::disk('public')->put($path, $pdf);
 
                 $draft = QualityReport::query()
-                    ->where('semester_id', $batch->semester_id)
+                    ->where('semester_id', $semesterId)
                     ->where('lecturer_id', $lecturer->id)
                     ->where('uploaded_by', $actor->id)
                     ->where('status', 'draft')
@@ -57,8 +87,8 @@ class BulkReportCreator
 
                 if ($draft) {
                     $previous = $draft->file_path;
-                    $draft->update(['file_path' => $path, 'category' => $batch->category]);
-                    $draft->reviews()->create(['actor_id' => $actor->id, 'action' => 'uploaded', 'note' => __('Bulk upload: PDF replaced')]);
+                    $draft->update(['file_path' => $path, 'category' => $category]);
+                    $draft->reviews()->create(['actor_id' => $actor->id, 'action' => 'uploaded', 'note' => $note.': '.__('PDF replaced')]);
 
                     if ($previous && $previous !== $path) {
                         DB::afterCommit(fn () => Storage::disk('public')->delete($previous));
@@ -71,10 +101,10 @@ class BulkReportCreator
 
                 $report = QualityReport::create([
                     'title' => sprintf('%s %s — %s', $course->code, $course->title, $lecturer->name),
-                    'category' => $batch->category,
+                    'category' => $category,
                     'status' => 'draft',
-                    'academic_year_id' => $batch->academic_year_id,
-                    'semester_id' => $batch->semester_id,
+                    'academic_year_id' => $academicYearId,
+                    'semester_id' => $semesterId,
                     'school_id' => $department->school_id,
                     'department_id' => $department->id,
                     'program_id' => $program?->id,
@@ -85,7 +115,7 @@ class BulkReportCreator
                 ]);
 
                 $report->courses()->sync([$course->id]);
-                $report->reviews()->create(['actor_id' => $actor->id, 'action' => 'uploaded', 'note' => __('Bulk upload')]);
+                $report->reviews()->create(['actor_id' => $actor->id, 'action' => 'uploaded', 'note' => $note]);
                 $created[] = $report->id;
             }
         });

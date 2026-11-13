@@ -38,6 +38,9 @@ use Illuminate\Support\Facades\Cache;
     'send_review_requests',
     'send_report_published',
     'send_report_returned',
+    'published_email_subject',
+    'published_email_body',
+    'published_attach_pdf',
     'last_tested_at',
     'last_test_succeeded',
     'last_test_message',
@@ -66,6 +69,30 @@ class EmailSetting extends Model
 
     private const CACHE_KEY = 'email-settings';
 
+    public const DEFAULT_PUBLISHED_SUBJECT = 'Your QA report has been published: {report_title}';
+
+    public const DEFAULT_PUBLISHED_BODY = <<<'TEXT'
+        Dear {lecturer_name},
+
+        Your quality assurance report "{report_title}" for {courses} ({academic_year}, {semester}) has been approved and published.
+
+        The report is attached to this email as a PDF. You can also view and download it at any time on your QA Insight portal, under My Courses: {portal_link}
+
+        Thank you.
+        TEXT;
+
+    /** Words that are replaced with the report's details when the email is sent. */
+    public const PUBLISHED_PLACEHOLDERS = [
+        'lecturer_name' => 'The lecturer\'s name',
+        'report_title' => 'The report title',
+        'courses' => 'Course code and title',
+        'academic_year' => 'Academic year',
+        'semester' => 'Semester',
+        'report_link' => 'Link to the report',
+        'portal_link' => 'Link to the lecturer\'s portal (My Courses)',
+        'sender_name' => 'Sender name',
+    ];
+
     /**
      * @return array<string, string>
      */
@@ -84,6 +111,7 @@ class EmailSetting extends Model
             'send_review_requests' => 'boolean',
             'send_report_published' => 'boolean',
             'send_report_returned' => 'boolean',
+            'published_attach_pdf' => 'boolean',
             'last_tested_at' => 'datetime',
             'last_test_succeeded' => 'boolean',
         ];
@@ -117,6 +145,24 @@ class EmailSetting extends Model
         return is_array($attributes) && $attributes !== []
             ? (new self)->newFromBuilder($attributes)
             : null;
+    }
+
+    public function publishedSubject(): string
+    {
+        return filled($this->published_email_subject) ? $this->published_email_subject : self::DEFAULT_PUBLISHED_SUBJECT;
+    }
+
+    public function publishedBody(): string
+    {
+        return filled($this->published_email_body) ? $this->published_email_body : self::DEFAULT_PUBLISHED_BODY;
+    }
+
+    /**
+     * Whether the published email carries the report PDF (on unless switched off).
+     */
+    public function attachesPublishedPdf(): bool
+    {
+        return $this->published_attach_pdf ?? true;
     }
 
     public function usesGmail(): bool

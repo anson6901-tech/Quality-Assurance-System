@@ -40,6 +40,7 @@ class QualityRolePermission extends Model
             'view_print_queue' => 'Access print queue',
             'view_audit_logs' => 'View audit logs',
             'manage_email_settings' => 'Configure email sending (Microsoft 365) and notifications',
+            'manage_documents' => 'Use document storage: create folders, upload, rename and delete files',
         ];
     }
 
@@ -49,9 +50,9 @@ class QualityRolePermission extends Model
     public static function defaults(): array
     {
         return [
-            UniversityRole::QaOfficer->value => ['view_reports', 'upload_reports'],
-            UniversityRole::QaSupervisor->value => ['view_reports', 'view_approval_queue', 'review_reports'],
-            UniversityRole::QaDirector->value => ['manage_users', 'manage_structure', 'view_reports', 'upload_reports', 'view_approval_queue', 'approve_reports', 'view_area_reports', 'view_print_queue', 'view_audit_logs'],
+            UniversityRole::QaOfficer->value => ['view_reports', 'upload_reports', 'manage_documents'],
+            UniversityRole::QaSupervisor->value => ['view_reports', 'view_approval_queue', 'review_reports', 'manage_documents'],
+            UniversityRole::QaDirector->value => ['manage_users', 'manage_structure', 'view_reports', 'upload_reports', 'view_approval_queue', 'approve_reports', 'view_area_reports', 'view_print_queue', 'view_audit_logs', 'manage_documents'],
             UniversityRole::IctAdmin->value => [
                 'manage_users',
                 'manage_structure',
@@ -66,6 +67,7 @@ class QualityRolePermission extends Model
                 'view_print_queue',
                 'view_audit_logs',
                 'manage_email_settings',
+                'manage_documents',
             ],
             UniversityRole::Dean->value => ['view_area_reports', 'view_own_reports', 'view_print_queue'],
             UniversityRole::Hod->value => ['manage_course_assignments', 'view_area_reports', 'view_own_reports', 'view_print_queue'],
@@ -121,6 +123,11 @@ class QualityRolePermission extends Model
                 'label' => 'Email Settings',
                 'description' => 'Connect Microsoft 365 email and choose which notifications are sent',
                 'permissions' => ['manage_email_settings'],
+            ],
+            [
+                'label' => 'Document Storage',
+                'description' => 'Keep any documents in shared folders, and search, open and download them',
+                'permissions' => ['manage_documents'],
             ],
         ])
             ->map(fn (array $group): array => [

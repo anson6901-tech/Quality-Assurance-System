@@ -66,7 +66,9 @@ class BulkUploadController extends Controller
             return to_route('quality.bulk-upload.index');
         }
 
-        $academicYears = AcademicYear::query()->active()->orderByDesc('starts_on')->get(['id', 'name']);
+        // Archived years can be uploaded to as well; active ones come first.
+        $academicYears = AcademicYear::query()->forUploads()->get(['id', 'name', 'status'])
+            ->map(fn (AcademicYear $year) => ['id' => $year->id, 'name' => $year->uploadLabel()]);
 
         return Inertia::render('quality/bulk-upload/Index', [
             'academicYears' => $academicYears,
@@ -343,7 +345,7 @@ class BulkUploadController extends Controller
     private function validateSemester(Request $request): array
     {
         $validated = $request->validate([
-            'academic_year_id' => ['required', 'integer', Rule::exists('academic_years', 'id')->where('status', 'active')],
+            'academic_year_id' => ['required', 'integer', Rule::exists('academic_years', 'id')],
             'semester_id' => ['required', 'integer', Rule::exists('semesters', 'id')],
         ]);
 

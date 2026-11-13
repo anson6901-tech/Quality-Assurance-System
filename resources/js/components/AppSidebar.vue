@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { Link, router, usePage } from '@inertiajs/vue3';
 import {
+    ChartColumn,
     Building2,
     CalendarRange,
     CheckCircle2,
     ClipboardList,
+    FolderOpen,
     FolderUp,
     BookOpenCheck,
     BookMarked,
@@ -77,6 +79,11 @@ const mainNavItems = computed<NavItem[]>(() => [
                   href: '/quality/bulk-upload',
                   icon: FolderUp,
               },
+              {
+                  title: 'Teaching Evaluation',
+                  href: '/quality/teaching-evaluation',
+                  icon: ChartColumn,
+              },
           ]
         : []),
     ...(showReportsItem.value
@@ -125,6 +132,15 @@ const mainNavItems = computed<NavItem[]>(() => [
                   title: 'Course Assignments',
                   href: '/quality/course-assignments',
                   icon: Users,
+              },
+          ]
+        : []),
+    ...(page.props.qualityProfile?.canManageDocuments
+        ? [
+              {
+                  title: 'Document Storage',
+                  href: '/quality/documents',
+                  icon: FolderOpen,
               },
           ]
         : []),

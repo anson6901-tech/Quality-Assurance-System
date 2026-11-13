@@ -4,6 +4,7 @@ import {
     Check,
     Download,
     Eye,
+    Mail,
     MoreHorizontal,
     Printer,
     RotateCcw,
@@ -32,6 +33,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     workflow: [action: WorkflowAction];
     print: [];
+    resend: [];
 }>();
 
 const inReview = computed(() =>
@@ -59,6 +61,13 @@ const canUnapprove = computed(
     () =>
         props.approvalQueue &&
         props.canApproveReports &&
+        props.report.status === 'approved',
+);
+// Supervisors and the Director can email a published report to the lecturer again.
+const canResend = computed(
+    () =>
+        props.approvalQueue &&
+        (props.canReviewReports || props.canApproveReports) &&
         props.report.status === 'approved',
 );
 const canDelete = computed(
@@ -92,6 +101,16 @@ const hasMenu = computed(
             @click="emit('workflow', 'publish')"
         >
             <Check class="h-4 w-4" /> Publish
+        </Button>
+        <Button
+            v-if="canResend"
+            type="button"
+            size="sm"
+            variant="outline"
+            title="Email this published report to the lecturer again, with the PDF attached"
+            @click="emit('resend')"
+        >
+            <Mail class="h-4 w-4" /> Resend email
         </Button>
         <Button
             v-if="printQueue"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, router, useForm } from '@inertiajs/vue3';
-import { Check, ChevronDown } from 'lucide-vue-next';
+import { Check, ChevronDown, RotateCcw } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import PageBanner from '@/components/PageBanner.vue';
 import CourseList from '@/components/quality/CourseList.vue';
@@ -406,8 +406,20 @@ const forwardableIds = (reports: QualityReport[]) =>
     reports
         .filter((report) => report.status === 'submitted')
         .map((report) => report.id);
+// Supervisors select submitted reports to forward; the Director selects reports to
+// publish (in review) or unpublish (published).
+const selectableIds = (reports: QualityReport[]) =>
+    props.reviewStage === 'supervisor'
+        ? forwardableIds(reports)
+        : props.reviewStage === 'director' && props.canApproveReports
+          ? reports
+                .filter((report) =>
+                    ['under_review', 'approved'].includes(report.status),
+                )
+                .map((report) => report.id)
+          : [];
 const isSelected = (reports: QualityReport[]) => {
-    const ids = forwardableIds(reports);
+    const ids = selectableIds(reports);
 
     return (
         ids.length > 0 &&
@@ -415,7 +427,7 @@ const isSelected = (reports: QualityReport[]) => {
     );
 };
 const toggleSelection = (reports: QualityReport[]) => {
-    const ids = forwardableIds(reports);
+    const ids = selectableIds(reports);
 
     selectedReportIds.value = isSelected(reports)
         ? selectedReportIds.value.filter((id) => !ids.includes(id))
@@ -442,6 +454,68 @@ const submitBulkForward = () => {
         },
     });
 };
+
+// Director: bulk publish / unpublish of the reports shown (after filters and search).
+const shownSelectableIds = computed(() =>
+    displayedGroups.value.flatMap((group) => selectableIds(group.reports)),
+);
+const allShownSelected = computed(
+    () =>
+        shownSelectableIds.value.length > 0 &&
+        shownSelectableIds.value.every((id) =>
+            selectedReportIds.value.includes(id),
+        ),
+);
+const toggleAllShown = () => {
+    selectedReportIds.value = allShownSelected.value
+        ? []
+        : [...shownSelectableIds.value];
+};
+const selectedWithStatus = (status: string) =>
+    props.reports
+        .filter(
+            (report) =>
+                report.status === status &&
+                selectedReportIds.value.includes(report.id),
+        )
+        .map((report) => report.id);
+const selectedToPublish = computed(() => selectedWithStatus('under_review'));
+const selectedToUnpublish = computed(() => selectedWithStatus('approved'));
+const bulkAction = ref<'publish' | 'unpublish' | null>(null);
+const bulkActionForm = useForm({ report_ids: [] as number[], note: '' });
+const openBulkAction = (action: 'publish' | 'unpublish') => {
+    bulkActionForm.report_ids =
+        action === 'publish'
+            ? [...selectedToPublish.value]
+            : [...selectedToUnpublish.value];
+    bulkActionForm.note = '';
+    bulkActionForm.clearErrors();
+    bulkAction.value = action;
+};
+const submitBulkAction = () => {
+    if (!bulkAction.value) {
+        return;
+    }
+
+    bulkActionForm
+        .transform((data) => ({ ...data, ...activeFilters.value }))
+        .post(`/quality/reports/${bulkAction.value}-selected`, {
+            preserveScroll: true,
+            onSuccess: () => {
+                selectedReportIds.value = [];
+                bulkAction.value = null;
+                bulkActionForm.reset();
+            },
+        });
+};
+
+// Resend the "published" email (one per course part: its reports share one PDF).
+const resendEmail = (report: QualityReport) =>
+    router.post(
+        `/quality/reports/${report.id}/resend-email`,
+        {},
+        { preserveScroll: true, preserveState: true },
+    );
 
 const selectedLecturerLabel = computed(() => {
     const selectedLecturerId = activeFilters.value.lecturer_id
@@ -794,7 +868,50 @@ defineOptions({
                         ({{ selectedReportIds.length }} selected)
                     </span>
                 </label>
+                <label
+                    v-if="
+                        reviewStage === 'director' && shownSelectableIds.length
+                    "
+                    class="flex shrink-0 items-center gap-3 text-sm font-medium text-[#063f22]"
+                >
+                    <input
+                        type="checkbox"
+                        class="h-4 w-4 accent-[#007a2f]"
+                        :checked="allShownSelected"
+                        @change="toggleAllShown"
+                    />
+                    Select all shown
+                    <span class="font-normal text-muted-foreground">
+                        ({{ selectedReportIds.length }} selected)
+                    </span>
+                </label>
                 <StatusSummary v-model="statusFilter" :counts="statusCounts" />
+            </div>
+            <div
+                v-if="reviewStage === 'director' && shownSelectableIds.length"
+                class="flex shrink-0 flex-wrap gap-2"
+            >
+                <Button
+                    type="button"
+                    size="sm"
+                    class="bg-[#007a2f] text-white hover:bg-[#006428]"
+                    :disabled="selectedToPublish.length === 0"
+                    @click="openBulkAction('publish')"
+                >
+                    <Check class="h-4 w-4" />
+                    Publish selected ({{ selectedToPublish.length }})
+                </Button>
+                <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    class="border-amber-300 bg-white text-amber-800 hover:bg-amber-50"
+                    :disabled="selectedToUnpublish.length === 0"
+                    @click="openBulkAction('unpublish')"
+                >
+                    <RotateCcw class="h-4 w-4" />
+                    Unpublish selected ({{ selectedToUnpublish.length }})
+                </Button>
             </div>
             <Button
                 v-if="
@@ -838,10 +955,7 @@ defineOptions({
             >
                 <div class="hidden md:block">
                     <input
-                        v-if="
-                            reviewStage === 'supervisor' &&
-                            forwardableIds(group.reports).length
-                        "
+                        v-if="selectableIds(group.reports).length"
                         type="checkbox"
                         class="h-4 w-4 accent-[#007a2f]"
                         :checked="isSelected(group.reports)"
@@ -907,6 +1021,7 @@ defineOptions({
                     :can-approve-reports="canApproveReports"
                     @workflow="openWorkflow(group.reports, $event)"
                     @print="printReport(group.first)"
+                    @resend="resendEmail(group.first)"
                 />
                 <div
                     v-else
@@ -940,10 +1055,7 @@ defineOptions({
                     >
                         <div class="hidden md:block">
                             <input
-                                v-if="
-                                    reviewStage === 'supervisor' &&
-                                    forwardableIds(unit.reports).length
-                                "
+                                v-if="selectableIds(unit.reports).length"
                                 type="checkbox"
                                 class="h-4 w-4 accent-[#007a2f]"
                                 :checked="isSelected(unit.reports)"
@@ -994,6 +1106,7 @@ defineOptions({
                             :can-approve-reports="canApproveReports"
                             @workflow="openWorkflow(unit.reports, $event)"
                             @print="printReport(unit.reports[0])"
+                            @resend="resendEmail(unit.reports[0])"
                         />
                     </CourseRow>
                 </template>
@@ -1045,6 +1158,61 @@ defineOptions({
                         >
                             <Check class="h-4 w-4" />
                             Forward reports
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog
+            :open="bulkAction !== null"
+            @update:open="(open) => !open && (bulkAction = null)"
+        >
+            <DialogContent class="sm:max-w-md">
+                <form class="space-y-5" @submit.prevent="submitBulkAction">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {{
+                                bulkAction === 'publish'
+                                    ? 'Publish selected reports'
+                                    : 'Unpublish selected reports'
+                            }}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {{
+                                bulkAction === 'publish'
+                                    ? `${bulkActionForm.report_ids.length} reports will be published. Each lecturer is emailed with their report attached.`
+                                    : `${bulkActionForm.report_ids.length} reports will be unpublished and go back to Director Review.`
+                            }}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div class="grid gap-2">
+                        <Label for="bulk-action-note">Note (optional)</Label>
+                        <textarea
+                            id="bulk-action-note"
+                            v-model="bulkActionForm.note"
+                            rows="3"
+                            class="rounded-md border border-[#9fd8b8] bg-white px-3 py-2 text-sm"
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            @click="bulkAction = null"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            class="bg-[#007a2f] text-white hover:bg-[#006428]"
+                            :disabled="bulkActionForm.processing"
+                        >
+                            {{
+                                bulkAction === 'publish'
+                                    ? 'Publish reports'
+                                    : 'Unpublish reports'
+                            }}
                         </Button>
                     </DialogFooter>
                 </form>

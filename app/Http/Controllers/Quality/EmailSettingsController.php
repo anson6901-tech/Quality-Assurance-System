@@ -66,6 +66,16 @@ class EmailSettingsController extends Controller
                 ] : null,
             ],
             'defaultTestRecipient' => $request->user()->email,
+            'publishedTemplate' => [
+                'subject' => $settings->publishedSubject(),
+                'body' => $settings->publishedBody(),
+                'attachPdf' => $settings->attachesPublishedPdf(),
+                'defaultSubject' => EmailSetting::DEFAULT_PUBLISHED_SUBJECT,
+                'defaultBody' => EmailSetting::DEFAULT_PUBLISHED_BODY,
+                'placeholders' => collect(EmailSetting::PUBLISHED_PLACEHOLDERS)
+                    ->map(fn (string $label, string $key) => ['key' => $key, 'label' => __($label)])
+                    ->values(),
+            ],
         ]);
     }
 
@@ -157,6 +167,33 @@ class EmailSettingsController extends Controller
     /**
      * Sends a test email right away (not queued) so the result can be shown on the page.
      */
+    /**
+     * Saves the wording of the "report published" email and whether it carries the PDF.
+     */
+    public function updateTemplates(Request $request): RedirectResponse
+    {
+        abort_unless($request->user()->canManageEmailSettings(), 403);
+
+        $validated = $request->validate([
+            'published_email_subject' => ['required', 'string', 'max:200'],
+            'published_email_body' => ['required', 'string', 'max:5000'],
+            'published_attach_pdf' => ['required', 'boolean'],
+        ]);
+
+        $settings = EmailSetting::current();
+        $settings->update([
+            // Saving the built-in wording unchanged keeps following the built-in wording.
+            'published_email_subject' => trim($validated['published_email_subject']) === EmailSetting::DEFAULT_PUBLISHED_SUBJECT ? null : trim($validated['published_email_subject']),
+            'published_email_body' => trim($validated['published_email_body']) === trim(EmailSetting::DEFAULT_PUBLISHED_BODY) ? null : trim($validated['published_email_body']),
+            'published_attach_pdf' => $validated['published_attach_pdf'],
+            'updated_by' => $request->user()->id,
+        ]);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Published email saved.')]);
+
+        return back();
+    }
+
     public function test(Request $request): RedirectResponse
     {
         abort_unless($request->user()->canManageEmailSettings(), 403);

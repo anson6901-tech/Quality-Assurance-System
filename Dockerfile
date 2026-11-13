@@ -6,10 +6,15 @@ FROM php:8.4-cli-bookworm
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libatomic1 \
+        libfreetype6-dev \
+        libjpeg62-turbo-dev \
         libonig-dev \
+        libpng-dev \
         libxml2-dev \
+        libzip-dev \
         unzip \
-    && docker-php-ext-install dom mbstring pcntl pdo_mysql simplexml xml xmlwriter \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install dom gd mbstring pcntl pdo_mysql simplexml xml xmlwriter zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Report PDFs may be up to 10 MB (app validation); PHP's 2 MB default would reject them.

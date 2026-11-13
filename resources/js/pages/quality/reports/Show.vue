@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3';
-import { Download, ExternalLink, Lock } from 'lucide-vue-next';
-import { computed } from 'vue';
+import { Head, router } from '@inertiajs/vue3';
+import { Download, ExternalLink, Lock, Mail } from 'lucide-vue-next';
+import { computed, ref } from 'vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { QualityReport } from '@/types';
@@ -9,7 +9,18 @@ import type { QualityReport } from '@/types';
 const props = defineProps<{
     report: QualityReport;
     canPushReport: boolean;
+    canResendEmail: boolean;
 }>();
+
+const resending = ref(false);
+const resendEmail = () => {
+    resending.value = true;
+    router.post(
+        `/quality/reports/${props.report.id}/resend-email`,
+        {},
+        { preserveScroll: true, onFinish: () => (resending.value = false) },
+    );
+};
 
 const pdfReaderUrl = computed(() =>
     props.report.fileUrl
@@ -27,6 +38,8 @@ const actionLabel = (action: string) =>
         returned_to_officer: 'Returned to QA Officer',
         returned_to_supervisor: 'Returned to QA Supervisor',
         published: 'Published',
+        unapproved: 'Unpublished',
+        email_resent: 'Email sent again to the lecturer',
         deleted: 'Deleted',
     })[action] ?? action.replaceAll('_', ' ');
 
@@ -114,6 +127,16 @@ defineOptions({
                             <Download class="h-4 w-4" />
                             Download
                         </a>
+                    </Button>
+                    <Button
+                        v-if="canResendEmail"
+                        class="bg-[#007a2f] text-white hover:bg-[#006428]"
+                        :disabled="resending"
+                        title="Email this report to the lecturer again, with the PDF attached"
+                        @click="resendEmail"
+                    >
+                        <Mail class="h-4 w-4" />
+                        Resend email to lecturer
                     </Button>
                 </div>
             </div>

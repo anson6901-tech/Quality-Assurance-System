@@ -15,18 +15,19 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 
-it('shows active academic years on the report upload page', function () {
+it('shows active and archived academic years on the report upload page, active first', function () {
     $user = User::factory()->create(['university_role' => UniversityRole::QaDirector]);
-    AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
     AcademicYear::create(['name' => '2024/2025', 'status' => 'archived']);
+    AcademicYear::create(['name' => '2025/2026', 'status' => 'active']);
 
     $this->actingAs($user)
         ->get('/quality/reports/create')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('quality/reports/Create')
-            ->has('academicYears', 1)
-            ->where('academicYears.0.name', '2025/2026'));
+            ->has('academicYears', 2)
+            ->where('academicYears.0.name', '2025/2026')
+            ->where('academicYears.1.name', '2024/2025 (archived)'));
 });
 
 it('does not show the upload action on the reports list for officers', function () {
@@ -375,7 +376,7 @@ it('keeps uploads in draft until the officer pushes them to the supervisor', fun
             ->where('reports.0.title', 'Awaiting review'));
 });
 
-it('does not allow uploads into archived academic years', function () {
+it('allows uploads into archived academic years', function () {
     $school = School::create(['name' => 'School of Nursing', 'code' => 'SON']);
     $department = Department::create(['school_id' => $school->id, 'name' => 'Nursing', 'code' => 'NURS']);
     $academicYear = AcademicYear::create(['name' => '2024/2025', 'status' => 'archived']);
@@ -400,7 +401,7 @@ it('does not allow uploads into archived academic years', function () {
             'academic_year_id' => $academicYear->id,
             'course_ids' => [$course->id],
         ])
-        ->assertInvalid('academic_year_id');
+        ->assertValid('academic_year_id');
 });
 
 it('does not allow reports to be uploaded directly into approval', function () {

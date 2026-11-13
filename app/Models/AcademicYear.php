@@ -41,6 +41,29 @@ class AcademicYear extends Model
     }
 
     /**
+     * Years offered when uploading: active years first (the default), then archived ones,
+     * newest first.
+     *
+     * @param  Builder<AcademicYear>  $query
+     * @return Builder<AcademicYear>
+     */
+    public function scopeForUploads(Builder $query): Builder
+    {
+        return $query
+            ->orderByRaw("case when status = 'active' then 0 else 1 end")
+            ->orderByDesc('starts_on')
+            ->orderByDesc('id');
+    }
+
+    /**
+     * The name shown in upload lists, e.g. "2024/2025 (archived)".
+     */
+    public function uploadLabel(): string
+    {
+        return $this->status === 'active' ? $this->name : "{$this->name} (archived)";
+    }
+
+    /**
      * @return HasMany<QualityReport, $this>
      */
     public function qualityReports(): HasMany

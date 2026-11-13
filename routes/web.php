@@ -10,7 +10,9 @@ use App\Http\Controllers\Quality\CourseController;
 use App\Http\Controllers\Quality\CourseOfferingController;
 use App\Http\Controllers\Quality\CourseSearchController;
 use App\Http\Controllers\Quality\DepartmentController;
+use App\Http\Controllers\Quality\DocumentController;
 use App\Http\Controllers\Quality\EmailSettingsController;
+use App\Http\Controllers\Quality\EvaluationAnalysisController;
 use App\Http\Controllers\Quality\MyCourseController;
 use App\Http\Controllers\Quality\OrganizationController;
 use App\Http\Controllers\Quality\ProgramController;
@@ -56,9 +58,37 @@ Route::middleware(['auth', 'verified'])
         Route::post('bulk-upload/submit', [BulkUploadController::class, 'submit'])->name('bulk-upload.submit');
         Route::patch('bulk-upload/batches/{batch}/items/{item}', [BulkUploadController::class, 'choose'])->name('bulk-upload.choose');
         Route::delete('bulk-upload/batches/{batch}/items/{item}', [BulkUploadController::class, 'destroyItem'])->name('bulk-upload.destroy-item');
+
+        Route::get('documents', [DocumentController::class, 'index'])->name('documents.index');
+        Route::post('documents/folders', [DocumentController::class, 'storeFolder'])->name('documents.folders.store');
+        Route::patch('documents/folders/{folder}', [DocumentController::class, 'renameFolder'])->name('documents.folders.update');
+        Route::delete('documents/folders/{folder}', [DocumentController::class, 'destroyFolder'])->name('documents.folders.destroy');
+        Route::post('documents/files', [DocumentController::class, 'upload'])->name('documents.files.store');
+        Route::post('documents/delete-selected', [DocumentController::class, 'destroySelected'])->name('documents.destroy-selected');
+        Route::post('documents/move-selected', [DocumentController::class, 'moveSelected'])->name('documents.move-selected');
+        Route::get('documents/files/{file}', [DocumentController::class, 'open'])->name('documents.files.show');
+        Route::get('documents/files/{file}/download', [DocumentController::class, 'download'])->name('documents.files.download');
+        Route::patch('documents/files/{file}', [DocumentController::class, 'renameFile'])->name('documents.files.update');
+        Route::delete('documents/files/{file}', [DocumentController::class, 'destroyFile'])->name('documents.files.destroy');
+
+        Route::get('teaching-evaluation', [EvaluationAnalysisController::class, 'index'])->name('evaluation.index');
+        Route::post('teaching-evaluation', [EvaluationAnalysisController::class, 'store'])->name('evaluation.store');
+        Route::get('teaching-evaluation/{analysis}', [EvaluationAnalysisController::class, 'show'])->name('evaluation.show');
+        Route::post('teaching-evaluation/{analysis}/frequencies', [EvaluationAnalysisController::class, 'frequencies'])->name('evaluation.frequencies');
+        Route::patch('teaching-evaluation/{analysis}/details', [EvaluationAnalysisController::class, 'details'])->name('evaluation.details');
+        Route::get('teaching-evaluation/{analysis}/pdf', [EvaluationAnalysisController::class, 'pdf'])->name('evaluation.pdf');
+        Route::get('teaching-evaluation/{analysis}/word', [EvaluationAnalysisController::class, 'word'])->name('evaluation.word');
+        Route::post('teaching-evaluation/{analysis}/save-to-documents', [EvaluationAnalysisController::class, 'saveToDocuments'])->name('evaluation.save-to-documents');
+        Route::post('teaching-evaluation/{analysis}/finish', [EvaluationAnalysisController::class, 'finish'])->name('evaluation.finish');
+        Route::post('teaching-evaluation/{analysis}/move-to-draft', [EvaluationAnalysisController::class, 'moveToDraft'])->name('evaluation.move-to-draft');
+        Route::delete('teaching-evaluation/{analysis}', [EvaluationAnalysisController::class, 'destroy'])->name('evaluation.destroy');
+
         Route::post('reports', [QualityReportController::class, 'store'])->name('reports.store');
         Route::post('reports/push-selected', [QualityReportController::class, 'pushSelected'])->name('reports.push-selected');
         Route::post('reports/forward-selected', [QualityReportController::class, 'forwardSelected'])->name('reports.forward-selected');
+        Route::post('reports/publish-selected', [QualityReportController::class, 'publishSelected'])->name('reports.publish-selected');
+        Route::post('reports/unpublish-selected', [QualityReportController::class, 'unpublishSelected'])->name('reports.unpublish-selected');
+        Route::post('reports/{report}/resend-email', [QualityReportController::class, 'resendPublishedEmail'])->name('reports.resend-email');
         Route::post('reports/{report}/push', [QualityReportController::class, 'push'])->name('reports.push');
         Route::post('reports/{report}/forward', [QualityReportController::class, 'forwardToDirector'])->name('reports.forward');
         Route::post('reports/{report}/approve', [QualityReportController::class, 'approve'])->name('reports.approve');
@@ -134,6 +164,7 @@ Route::middleware(['auth', 'verified'])
         Route::get('email-settings', [EmailSettingsController::class, 'show'])->name('email-settings.show');
         Route::put('email-settings', [EmailSettingsController::class, 'update'])->name('email-settings.update');
         Route::post('email-settings/test', [EmailSettingsController::class, 'test'])->name('email-settings.test');
+        Route::put('email-settings/templates', [EmailSettingsController::class, 'updateTemplates'])->name('email-settings.templates');
 
         Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
         Route::get('audit-logs/export', [AuditLogController::class, 'export'])->name('audit-logs.export');
